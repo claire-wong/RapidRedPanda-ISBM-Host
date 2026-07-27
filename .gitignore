@@ -1,0 +1,55 @@
+# Documentation is local-only until final public-release review
+docs/
+
+# Test project is local-only for the initial repository push
+RapidRedPanda.ISBM.Host/RapidRedPanda.ISBM.Host.Tests/
+
+# Local SQL Server database files and active database directory
+RapidRedPanda.ISBM.Host/Database/Scripts/
+RapidRedPanda.ISBM.Host/Database/Active/
+*.mdf
+*.ldf
+
+# Local integration test logs
+*.stdout.log
+*.stderr.log
+
+# Visual Studio user and workspace files
+.vs/
+**/.vs/
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build output
+[Bb]in/
+[Oo]bj/
+**/[Bb]in/
+**/[Oo]bj/
+
+# Test results and coverage
+TestResults/
+**/TestResults/
+coverage/
+**/coverage/
+coverage.*
+*.coverage
+*.coveragexml
+*.trx
+
+# Local environment and secret-bearing files
+.env
+.env.*
+!.env.example
+**/appsettings.Development.json
+**/appsettings.Development.local.json
+**/appsettings.Local.json
+**/appsettings.*.local.json
+**/secrets.json
+
+# Common operating-system metadata
+.DS_Store
+Thumbs.db
+desktop.ini
