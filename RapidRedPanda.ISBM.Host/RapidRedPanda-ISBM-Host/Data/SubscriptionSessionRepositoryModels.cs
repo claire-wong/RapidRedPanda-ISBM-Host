@@ -18,7 +18,8 @@ public sealed record ConsumerSubscriptionSessionCreateData(
     string AzureTopicName,
     string AzureSubscriptionName,
     IReadOnlyList<string> RequestedTopics,
-    string? AuthenticatedTokenUsername);
+    string? AuthenticatedTokenUsername,
+    string? ListenerUrl = null);
 
 public sealed record ConsumerSubscriptionSessionData(
     Guid SessionId,
@@ -30,7 +31,8 @@ public sealed record ConsumerSubscriptionSessionData(
     IReadOnlyList<string> RequestedTopics,
     string? AuthenticatedTokenUsername,
     DateTime OpenedUtc,
-    DateTime? ClosedUtc);
+    DateTime? ClosedUtc,
+    string? ListenerUrl = null);
 
 public enum InsertSubscriptionSessionFailureKind
 {

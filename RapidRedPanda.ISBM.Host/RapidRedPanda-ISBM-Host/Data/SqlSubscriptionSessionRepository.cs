@@ -60,7 +60,8 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
                         SessionState,
                         AzureTopicName,
                         AzureSubscriptionName,
-                        AuthenticatedTokenUsername
+                        AuthenticatedTokenUsername,
+                        ListenerUrl
                     )
                     values
                     (
@@ -70,7 +71,8 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
                         @SessionState,
                         @AzureTopicName,
                         @AzureSubscriptionName,
-                        @AuthenticatedTokenUsername
+                        @AuthenticatedTokenUsername,
+                        @ListenerUrl
                     );
                     """;
 
@@ -84,6 +86,8 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
                     command.Parameters.Add("@AzureSubscriptionName", SqlDbType.NVarChar, 260).Value = session.AzureSubscriptionName;
                     command.Parameters.Add("@AuthenticatedTokenUsername", SqlDbType.NVarChar, 256).Value =
                         (object?)session.AuthenticatedTokenUsername ?? DBNull.Value;
+                    command.Parameters.Add("@ListenerUrl", SqlDbType.NVarChar, 2048).Value =
+                        (object?)session.ListenerUrl ?? DBNull.Value;
 
                     await command.ExecuteNonQueryAsync(cancellationToken);
                 }
@@ -147,7 +151,8 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
                     AzureSubscriptionName,
                     AuthenticatedTokenUsername,
                     OpenedUtc,
-                    ClosedUtc
+                    ClosedUtc,
+                    ListenerUrl
                 from dbo.ConsumerSubscriptionSessions
                 where SessionId = @SessionId;
                 """;
@@ -171,7 +176,8 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
                 [],
                 reader.IsDBNull(6) ? null : reader.GetString(6),
                 reader.GetDateTime(7),
-                reader.IsDBNull(8) ? null : reader.GetDateTime(8));
+                reader.IsDBNull(8) ? null : reader.GetDateTime(8),
+                reader.IsDBNull(9) ? null : reader.GetString(9));
 
             await reader.CloseAsync();
 

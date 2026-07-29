@@ -10,6 +10,7 @@ public interface IConsumerSubscriptionSessionService
     Task<OpenSubscriptionSessionResult> OpenSubscriptionSessionAsync(
         string channelId,
         IReadOnlyList<string> topics,
+        string? listenerUrl,
         ChannelCredentials? credentials,
         CancellationToken cancellationToken);
 
@@ -130,6 +131,8 @@ public sealed record RemovePublicationResult(
 
 public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSessionService
 {
+    private const int ListenerUrlMaxLength = 2048;
+
     private readonly IChannelRepository _channelRepository;
     private readonly ISubscriptionSessionRepository _sessionRepository;
     private readonly IProviderPublicationRepository _publicationRepository;
@@ -172,10 +175,16 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
     public async Task<OpenSubscriptionSessionResult> OpenSubscriptionSessionAsync(
         string channelId,
         IReadOnlyList<string> topics,
+        string? listenerUrl,
         ChannelCredentials? credentials,
         CancellationToken cancellationToken)
     {
         if (!TryDecodeAndValidateChannelUri(channelId, out string decodedChannelUri))
+        {
+            return OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.ParameterFault);
+        }
+
+        if (!TryValidateListenerUrl(listenerUrl, out string? normalizedListenerUrl))
         {
             return OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.ParameterFault);
         }
@@ -288,7 +297,8 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
                 channel.AzureTopicName,
                 azureSubscriptionName,
                 requestedTopics,
-                channel.AuthenticatedTokenUsername),
+                channel.AuthenticatedTokenUsername,
+                normalizedListenerUrl),
             cancellationToken);
 
         if (insertResult.Succeeded)
@@ -686,6 +696,41 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
         }
 
         return ChannelValidationRules.IsValidChannelUri(decodedChannelUri);
+    }
+
+    private static bool TryValidateListenerUrl(string? listenerUrl, out string? normalizedListenerUrl)
+    {
+        normalizedListenerUrl = null;
+
+        if (listenerUrl is null)
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(listenerUrl) ||
+            listenerUrl.Length != listenerUrl.Trim().Length)
+        {
+            return false;
+        }
+
+        if (!Uri.TryCreate(listenerUrl, UriKind.Absolute, out Uri? uri) ||
+            (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+             !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) ||
+            string.IsNullOrWhiteSpace(uri.Host) ||
+            !string.IsNullOrEmpty(uri.Fragment) ||
+            !string.IsNullOrEmpty(uri.UserInfo))
+        {
+            return false;
+        }
+
+        string absoluteUri = uri.AbsoluteUri;
+        if (absoluteUri.Length > ListenerUrlMaxLength)
+        {
+            return false;
+        }
+
+        normalizedListenerUrl = absoluteUri;
+        return true;
     }
 
     private sealed class NullProviderPublicationRepository : IProviderPublicationRepository

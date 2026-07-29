@@ -4,8 +4,13 @@ docs/
 # Test project is local-only for the initial repository push
 RapidRedPanda.ISBM.Host/RapidRedPanda.ISBM.Host.Tests/
 
+# Database scripts: track only the production fresh-install schema
+RapidRedPanda.ISBM.Host/Database/Scripts/*
+!RapidRedPanda.ISBM.Host/Database/Scripts/Install/
+RapidRedPanda.ISBM.Host/Database/Scripts/Install/*
+!RapidRedPanda.ISBM.Host/Database/Scripts/Install/002_CreatePhaseOneSchema.sql
+
 # Local SQL Server database files and active database directory
-RapidRedPanda.ISBM.Host/Database/Scripts/
 RapidRedPanda.ISBM.Host/Database/Active/
 *.mdf
 *.ldf

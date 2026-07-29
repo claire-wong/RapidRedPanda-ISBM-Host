@@ -60,6 +60,7 @@ public sealed class ConsumerPublicationServiceController : Controller
             result = await _subscriptionSessionService.OpenSubscriptionSessionAsync(
                 channelId,
                 request.Topics,
+                request.ListenerUrl,
                 TryReadBasicCredentials(),
                 cancellationToken);
         }
