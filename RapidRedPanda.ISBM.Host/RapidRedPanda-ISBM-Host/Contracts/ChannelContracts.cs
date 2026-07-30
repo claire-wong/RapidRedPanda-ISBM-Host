@@ -79,6 +79,9 @@ public sealed class OpenProviderRequestSessionRequest
     [JsonPropertyName("topics")]
     public IReadOnlyList<string>? Topics { get; init; }
 
+    [JsonPropertyName("listenerUrl")]
+    public string? ListenerUrl { get; init; }
+
     [JsonPropertyName("filterExpressions")]
     public IReadOnlyList<JsonElement>? FilterExpressions { get; init; }
 }

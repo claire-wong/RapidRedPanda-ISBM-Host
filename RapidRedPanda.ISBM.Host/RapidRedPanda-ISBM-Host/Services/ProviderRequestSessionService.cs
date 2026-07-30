@@ -10,6 +10,7 @@ public interface IProviderRequestSessionService
     Task<OpenProviderRequestSessionResult> OpenProviderRequestSessionAsync(
         string channelId,
         IReadOnlyList<string> topics,
+        string? listenerUrl,
         ChannelCredentials? credentials,
         CancellationToken cancellationToken);
 
@@ -196,12 +197,18 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
     public async Task<OpenProviderRequestSessionResult> OpenProviderRequestSessionAsync(
         string channelId,
         IReadOnlyList<string> topics,
+        string? listenerUrl,
         ChannelCredentials? credentials,
         CancellationToken cancellationToken)
     {
         if (!TryDecodeAndValidateChannelUri(channelId, out string decodedChannelUri) ||
             topics.Count == 0 ||
             topics.Any(string.IsNullOrEmpty))
+        {
+            return OpenProviderRequestSessionResult.Failure(OpenProviderRequestSessionFailureKind.ParameterFault);
+        }
+
+        if (!ListenerUrlValidation.TryNormalize(listenerUrl, out string? normalizedListenerUrl))
         {
             return OpenProviderRequestSessionResult.Failure(OpenProviderRequestSessionFailureKind.ParameterFault);
         }
@@ -263,7 +270,8 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
                 channel.AzureTopicName,
                 azureSubscriptionName,
                 requestedTopics,
-                channel.AuthenticatedTokenUsername),
+                channel.AuthenticatedTokenUsername,
+                normalizedListenerUrl),
             cancellationToken);
 
         if (insertResult.Succeeded)

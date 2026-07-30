@@ -274,6 +274,7 @@ public sealed class SessionCloseService : ISessionCloseService
         public Task<OpenProviderRequestSessionResult> OpenProviderRequestSessionAsync(
             string channelId,
             IReadOnlyList<string> topics,
+            string? listenerUrl,
             ChannelCredentials? credentials,
             CancellationToken cancellationToken)
         {
