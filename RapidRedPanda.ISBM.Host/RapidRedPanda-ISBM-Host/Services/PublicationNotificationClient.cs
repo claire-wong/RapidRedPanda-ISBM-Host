@@ -68,9 +68,18 @@ public sealed class PublicationNotificationClient : IPublicationNotificationClie
         Uri callbackUri;
         try
         {
+            Guid recipientSessionId = notification.ServiceType switch
+            {
+                NotificationServiceTypes.Publication => notification.ConsumerSessionId
+                    ?? throw new InvalidOperationException("Publication notification is missing a consumer session ID."),
+                NotificationServiceTypes.Request => notification.ProviderRequestSessionId
+                    ?? throw new InvalidOperationException("Request notification is missing a provider request session ID."),
+                _ => throw new InvalidOperationException("Notification service type is not supported.")
+            };
+
             callbackUri = _uriBuilder.Build(
                 notification.ListenerUrl,
-                notification.ConsumerSessionId ?? throw new InvalidOperationException("Publication notification is missing a consumer session ID."),
+                recipientSessionId,
                 notification.MessageId);
         }
         catch (Exception exception) when (exception is UriFormatException or InvalidOperationException)

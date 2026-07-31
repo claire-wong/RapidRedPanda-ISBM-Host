@@ -126,6 +126,25 @@ public sealed class PublicationNotificationDispatcher : BackgroundService
         ClaimedPublicationNotification notification,
         CancellationToken stoppingToken)
     {
+        if (!TryValidateNotificationShape(notification, out string? shapeError))
+        {
+            PublicationNotificationCompletionResult completion = await repository.MarkFailedAsync(
+                notification.NotificationId,
+                _lockOwner,
+                statusCode: null,
+                shapeError,
+                stoppingToken);
+            LogCompletionResult(notification, completion, "invalid shape failure");
+            _logger.LogWarning(
+                "Failed malformed notification {NotificationId} terminally. ServiceType: {ServiceType}. MessageId: {MessageId}.",
+                notification.NotificationId,
+                notification.ServiceType,
+                notification.MessageId);
+            return;
+        }
+
+        Guid recipientSessionId = GetRecipientSessionId(notification);
+
         if (!notification.IsEligible)
         {
             PublicationNotificationCompletionResult completion = await repository.MarkSuppressedAsync(
@@ -135,10 +154,11 @@ public sealed class PublicationNotificationDispatcher : BackgroundService
                 stoppingToken);
             LogCompletionResult(notification, completion, "suppression");
             _logger.LogInformation(
-                "Suppressed publication notification {NotificationId}. MessageId: {MessageId}. ConsumerSessionId: {ConsumerSessionId}. Reason: {Reason}.",
+                "Suppressed notification {NotificationId}. ServiceType: {ServiceType}. MessageId: {MessageId}. RecipientSessionId: {RecipientSessionId}. Reason: {Reason}.",
                 notification.NotificationId,
+                notification.ServiceType,
                 notification.MessageId,
-                notification.ConsumerSessionId,
+                recipientSessionId,
                 notification.SuppressionReason);
             return;
         }
@@ -151,18 +171,20 @@ public sealed class PublicationNotificationDispatcher : BackgroundService
                 stoppingToken);
             LogCompletionResult(notification, completion, "expiration");
             _logger.LogInformation(
-                "Expired publication notification {NotificationId}. MessageId: {MessageId}. ConsumerSessionId: {ConsumerSessionId}.",
+                "Expired notification {NotificationId}. ServiceType: {ServiceType}. MessageId: {MessageId}. RecipientSessionId: {RecipientSessionId}.",
                 notification.NotificationId,
+                notification.ServiceType,
                 notification.MessageId,
-                notification.ConsumerSessionId);
+                recipientSessionId);
             return;
         }
 
         _logger.LogInformation(
-            "Delivering publication notification {NotificationId}. MessageId: {MessageId}. ConsumerSessionId: {ConsumerSessionId}. LockOwner: {LockOwner}. Attempt: {Attempt}.",
+            "Delivering notification {NotificationId}. ServiceType: {ServiceType}. MessageId: {MessageId}. RecipientSessionId: {RecipientSessionId}. LockOwner: {LockOwner}. Attempt: {Attempt}.",
             notification.NotificationId,
+            notification.ServiceType,
             notification.MessageId,
-            notification.ConsumerSessionId,
+            recipientSessionId,
             _lockOwner,
             notification.AttemptCount);
 
@@ -178,10 +200,11 @@ public sealed class PublicationNotificationDispatcher : BackgroundService
                     stoppingToken);
                 LogCompletionResult(notification, deliveredCompletion, "delivery");
                 _logger.LogInformation(
-                    "Delivered publication notification {NotificationId}. MessageId: {MessageId}. ConsumerSessionId: {ConsumerSessionId}.",
+                    "Delivered notification {NotificationId}. ServiceType: {ServiceType}. MessageId: {MessageId}. RecipientSessionId: {RecipientSessionId}.",
                     notification.NotificationId,
+                    notification.ServiceType,
                     notification.MessageId,
-                    notification.ConsumerSessionId);
+                    recipientSessionId);
                 break;
 
             case PublicationNotificationDeliveryOutcome.RetryableFailure:
@@ -197,10 +220,11 @@ public sealed class PublicationNotificationDispatcher : BackgroundService
                     stoppingToken);
                 LogCompletionResult(notification, failedCompletion, "terminal failure");
                 _logger.LogWarning(
-                    "Failed publication notification {NotificationId} terminally. MessageId: {MessageId}. ConsumerSessionId: {ConsumerSessionId}. StatusCode: {StatusCode}.",
+                    "Failed notification {NotificationId} terminally. ServiceType: {ServiceType}. MessageId: {MessageId}. RecipientSessionId: {RecipientSessionId}. StatusCode: {StatusCode}.",
                     notification.NotificationId,
+                    notification.ServiceType,
                     notification.MessageId,
-                    notification.ConsumerSessionId,
+                    recipientSessionId,
                     deliveryResult.StatusCode);
                 break;
 
@@ -233,12 +257,14 @@ public sealed class PublicationNotificationDispatcher : BackgroundService
             SanitizeError(deliveryResult.Error),
             stoppingToken);
         LogCompletionResult(notification, completion, "retryable failure");
+        Guid recipientSessionId = GetRecipientSessionId(notification);
 
         _logger.LogInformation(
-            "Completed retryable failure for publication notification {NotificationId}. MessageId: {MessageId}. ConsumerSessionId: {ConsumerSessionId}. Outcome: {Outcome}. StatusCode: {StatusCode}. RetryDelaySeconds: {RetryDelaySeconds}.",
+            "Completed retryable failure for notification {NotificationId}. ServiceType: {ServiceType}. MessageId: {MessageId}. RecipientSessionId: {RecipientSessionId}. Outcome: {Outcome}. StatusCode: {StatusCode}. RetryDelaySeconds: {RetryDelaySeconds}.",
             notification.NotificationId,
+            notification.ServiceType,
             notification.MessageId,
-            notification.ConsumerSessionId,
+            recipientSessionId,
             completion.Outcome,
             deliveryResult.StatusCode,
             retryDelay.TotalSeconds);
@@ -265,6 +291,44 @@ public sealed class PublicationNotificationDispatcher : BackgroundService
         return _timeProvider.GetUtcNow().UtcDateTime;
     }
 
+    private static bool TryValidateNotificationShape(
+        ClaimedPublicationNotification notification,
+        out string error)
+    {
+        error = "Invalid notification shape.";
+        if (string.Equals(notification.ServiceType, NotificationServiceTypes.Publication, StringComparison.Ordinal))
+        {
+            if (notification.ConsumerSessionId is not null && notification.ProviderRequestSessionId is null)
+            {
+                return true;
+            }
+
+            error = "Invalid publication notification shape.";
+            return false;
+        }
+
+        if (string.Equals(notification.ServiceType, NotificationServiceTypes.Request, StringComparison.Ordinal))
+        {
+            if (notification.ProviderRequestSessionId is not null && notification.ConsumerSessionId is null)
+            {
+                return true;
+            }
+
+            error = "Invalid request notification shape.";
+            return false;
+        }
+
+        error = "Unsupported notification service type.";
+        return false;
+    }
+
+    private static Guid GetRecipientSessionId(ClaimedPublicationNotification notification)
+    {
+        return string.Equals(notification.ServiceType, NotificationServiceTypes.Request, StringComparison.Ordinal)
+            ? notification.ProviderRequestSessionId!.Value
+            : notification.ConsumerSessionId!.Value;
+    }
+
     private void LogCompletionResult(
         ClaimedPublicationNotification notification,
         PublicationNotificationCompletionResult completion,
@@ -273,7 +337,7 @@ public sealed class PublicationNotificationDispatcher : BackgroundService
         if (!completion.Succeeded)
         {
             _logger.LogError(
-                "Publication notification {NotificationId} {Operation} failed: {ErrorMessage}.",
+                "Notification {NotificationId} {Operation} failed: {ErrorMessage}.",
                 notification.NotificationId,
                 operation,
                 completion.ErrorMessage);
@@ -283,11 +347,11 @@ public sealed class PublicationNotificationDispatcher : BackgroundService
         if (completion.Outcome == PublicationNotificationCompletionOutcome.OwnershipLost)
         {
             _logger.LogInformation(
-                "Publication notification {NotificationId} {Operation} skipped because lease ownership was lost. MessageId: {MessageId}. ConsumerSessionId: {ConsumerSessionId}. LockOwner: {LockOwner}.",
+                "Notification {NotificationId} {Operation} skipped because lease ownership was lost. ServiceType: {ServiceType}. MessageId: {MessageId}. LockOwner: {LockOwner}.",
                 notification.NotificationId,
                 operation,
+                notification.ServiceType,
                 notification.MessageId,
-                notification.ConsumerSessionId,
                 _lockOwner);
         }
     }

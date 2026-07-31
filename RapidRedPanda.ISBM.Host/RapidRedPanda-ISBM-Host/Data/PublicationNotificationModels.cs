@@ -22,8 +22,11 @@ public static class PublicationNotificationSuppressionReasons
     public const string SessionClosed = "SessionClosed";
     public const string RecipientNotPending = "RecipientNotPending";
     public const string PublicationExpired = "PublicationExpired";
+    public const string RequestMissing = "RequestMissing";
+    public const string RequestExpired = "RequestExpired";
     public const string ListenerMissing = "ListenerMissing";
     public const string DeliveryWindowExpired = "DeliveryWindowExpired";
+    public const string InvalidNotificationShape = "InvalidNotificationShape";
 }
 
 public sealed record PublicationNotificationData(
