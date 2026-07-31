@@ -214,25 +214,52 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
         {
             await using SqlConnection connection = new(_connectionString);
             await connection.OpenAsync(cancellationToken);
+            await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
 
-            const string sql = """
-                update dbo.ConsumerSubscriptionSessions
-                   set SessionState = @ClosedState,
-                       ClosedUtc = coalesce(ClosedUtc, sysutcdatetime())
-                 where SessionId = @SessionId;
-                """;
-
-            await using SqlCommand command = new(sql, connection);
-            command.Parameters.Add("@ClosedState", SqlDbType.NVarChar, 32).Value = SubscriptionSessionStates.Closed;
-            command.Parameters.Add("@SessionId", SqlDbType.UniqueIdentifier).Value = sessionId;
-
-            int affectedRows = await command.ExecuteNonQueryAsync(cancellationToken);
-            if (affectedRows == 0)
+            try
             {
-                return CloseSubscriptionSessionResult.Failure(CloseSubscriptionSessionFailureKind.NotFound, "Subscription session was not found.");
-            }
+                const string sql = """
+                    update dbo.ConsumerSubscriptionSessions
+                       set SessionState = @ClosedState,
+                           ClosedUtc = coalesce(ClosedUtc, @ClosedUtc)
+                     where SessionId = @SessionId;
+                    """;
 
-            return CloseSubscriptionSessionResult.Success();
+                DateTime closedUtc = DateTime.UtcNow;
+                await using (SqlCommand command = new(sql, connection, transaction))
+                {
+                    command.Parameters.Add("@ClosedState", SqlDbType.NVarChar, 32).Value = SubscriptionSessionStates.Closed;
+                    command.Parameters.Add("@ClosedUtc", SqlDbType.DateTime2).Value = closedUtc;
+                    command.Parameters.Add("@SessionId", SqlDbType.UniqueIdentifier).Value = sessionId;
+
+                    int affectedRows = await command.ExecuteNonQueryAsync(cancellationToken);
+                    if (affectedRows == 0)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        return CloseSubscriptionSessionResult.Failure(CloseSubscriptionSessionFailureKind.NotFound, "Subscription session was not found.");
+                    }
+                }
+
+                int suppressedCount = await SqlRequestNotificationSuppression.SuppressForSessionAsync(
+                    connection,
+                    transaction,
+                    sessionId,
+                    closedUtc,
+                    PublicationNotificationSuppressionReasons.ProviderRequestSessionClosed,
+                    cancellationToken);
+
+                await transaction.CommitAsync(cancellationToken);
+                _logger.LogInformation(
+                    "Suppressed {SuppressedCount} request notifications while closing subscription session {SessionId}.",
+                    suppressedCount,
+                    sessionId);
+                return CloseSubscriptionSessionResult.Success();
+            }
+            catch
+            {
+                await RollbackQuietlyAsync(transaction, cancellationToken);
+                throw;
+            }
         }
         catch (SqlException exception)
         {

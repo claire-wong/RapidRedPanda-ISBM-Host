@@ -233,23 +233,47 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
         {
             await using SqlConnection connection = new(_connectionString);
             await connection.OpenAsync(cancellationToken);
+            await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
 
-            const string sql = """
-                update dbo.ConsumerRequests
-                   set ExpiredUtc = coalesce(ExpiredUtc, @ExpiredUtc)
-                 where MessageId = @MessageId
-                   and ConsumerSessionId = @ConsumerSessionId
-                   and ChannelId = @ChannelId;
-                """;
+            try
+            {
+                const string sql = """
+                    update dbo.ConsumerRequests
+                       set ExpiredUtc = coalesce(ExpiredUtc, @ExpiredUtc)
+                     where MessageId = @MessageId
+                       and ConsumerSessionId = @ConsumerSessionId
+                       and ChannelId = @ChannelId;
+                    """;
 
-            await using SqlCommand command = new(sql, connection);
-            command.Parameters.Add("@ExpiredUtc", SqlDbType.DateTime2).Value = expiredUtc;
-            command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = messageId;
-            command.Parameters.Add("@ConsumerSessionId", SqlDbType.UniqueIdentifier).Value = consumerSessionId;
-            command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = channelId;
-            await command.ExecuteNonQueryAsync(cancellationToken);
+                await using (SqlCommand command = new(sql, connection, transaction))
+                {
+                    command.Parameters.Add("@ExpiredUtc", SqlDbType.DateTime2).Value = expiredUtc;
+                    command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = messageId;
+                    command.Parameters.Add("@ConsumerSessionId", SqlDbType.UniqueIdentifier).Value = consumerSessionId;
+                    command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = channelId;
+                    await command.ExecuteNonQueryAsync(cancellationToken);
+                }
 
-            return ConsumerRequestRepositoryResult.Success();
+                int suppressedCount = await SqlRequestNotificationSuppression.SuppressForMessageAsync(
+                    connection,
+                    transaction,
+                    messageId,
+                    expiredUtc,
+                    PublicationNotificationSuppressionReasons.RequestExpired,
+                    cancellationToken);
+
+                await transaction.CommitAsync(cancellationToken);
+                _logger.LogInformation(
+                    "Suppressed {SuppressedCount} request notifications while expiring request {MessageId}.",
+                    suppressedCount,
+                    messageId);
+                return ConsumerRequestRepositoryResult.Success();
+            }
+            catch
+            {
+                await RollbackQuietlyAsync(transaction, cancellationToken);
+                throw;
+            }
         }
         catch (SqlException exception)
         {

@@ -8,6 +8,11 @@ public interface IPublicationNotificationRepository
         TimeSpan leaseDuration,
         CancellationToken cancellationToken);
 
+    Task<PublicationNotificationEligibilityResult> RecheckClaimedEligibilityAsync(
+        Guid notificationId,
+        string lockOwner,
+        CancellationToken cancellationToken);
+
     Task<PublicationNotificationCompletionResult> MarkDeliveredAsync(
         Guid notificationId,
         string lockOwner,
@@ -47,6 +52,16 @@ public interface IPublicationNotificationRepository
     Task<PublicationNotificationCompletionResult> MarkExpiredAsync(
         Guid notificationId,
         string lockOwner,
+        CancellationToken cancellationToken);
+
+    Task<PublicationNotificationSuppressionResult> SuppressRequestNotificationsForSessionAsync(
+        Guid providerRequestSessionId,
+        DateTime suppressedUtc,
+        CancellationToken cancellationToken);
+
+    Task<PublicationNotificationSuppressionResult> SuppressRequestNotificationsForMessageAsync(
+        Guid requestMessageId,
+        DateTime suppressedUtc,
         CancellationToken cancellationToken);
 
     Task<PublicationNotificationQueryResult> GetPendingPublicationNotificationsAsync(

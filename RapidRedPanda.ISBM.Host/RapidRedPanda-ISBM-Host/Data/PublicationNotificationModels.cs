@@ -20,6 +20,8 @@ public static class NotificationServiceTypes
 public static class PublicationNotificationSuppressionReasons
 {
     public const string SessionClosed = "SessionClosed";
+    public const string ProviderRequestSessionClosed = "ProviderRequestSessionClosed";
+    public const string ProviderRequestSessionExpired = "ProviderRequestSessionExpired";
     public const string RecipientNotPending = "RecipientNotPending";
     public const string PublicationExpired = "PublicationExpired";
     public const string RequestMissing = "RequestMissing";
@@ -107,6 +109,55 @@ public sealed record PublicationNotificationRepositoryResult(
         string errorMessage)
     {
         return new PublicationNotificationRepositoryResult(false, failureKind, errorMessage);
+    }
+}
+
+public sealed record PublicationNotificationSuppressionResult(
+    bool Succeeded,
+    int SuppressedCount,
+    ProviderPublicationRepositoryFailureKind? FailureKind,
+    string? ErrorMessage)
+{
+    public static PublicationNotificationSuppressionResult Success(int suppressedCount)
+    {
+        return new PublicationNotificationSuppressionResult(true, suppressedCount, null, null);
+    }
+
+    public static PublicationNotificationSuppressionResult Failure(
+        ProviderPublicationRepositoryFailureKind failureKind,
+        string errorMessage)
+    {
+        return new PublicationNotificationSuppressionResult(false, 0, failureKind, errorMessage);
+    }
+}
+
+public sealed record PublicationNotificationEligibilityResult(
+    bool Succeeded,
+    bool HasOwnership,
+    bool IsEligible,
+    string? SuppressionReason,
+    bool IsDeliveryWindowExpired,
+    ProviderPublicationRepositoryFailureKind? FailureKind,
+    string? ErrorMessage)
+{
+    public static PublicationNotificationEligibilityResult Success(
+        bool isEligible,
+        string? suppressionReason,
+        bool isDeliveryWindowExpired)
+    {
+        return new PublicationNotificationEligibilityResult(true, true, isEligible, suppressionReason, isDeliveryWindowExpired, null, null);
+    }
+
+    public static PublicationNotificationEligibilityResult OwnershipLost()
+    {
+        return new PublicationNotificationEligibilityResult(true, false, false, null, false, null, null);
+    }
+
+    public static PublicationNotificationEligibilityResult Failure(
+        ProviderPublicationRepositoryFailureKind failureKind,
+        string errorMessage)
+    {
+        return new PublicationNotificationEligibilityResult(false, false, false, null, false, failureKind, errorMessage);
     }
 }
 

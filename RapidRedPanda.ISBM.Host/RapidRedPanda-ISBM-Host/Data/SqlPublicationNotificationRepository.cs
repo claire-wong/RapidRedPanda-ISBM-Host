@@ -241,6 +241,108 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
         }
     }
 
+    public async Task<PublicationNotificationEligibilityResult> RecheckClaimedEligibilityAsync(
+        Guid notificationId,
+        string lockOwner,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using SqlConnection connection = new(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            const string sql = """
+                declare @SqlUtcNow datetime2(7) = sysutcdatetime();
+
+                select
+                    notification.PublicationNotificationId,
+                    notification.NotificationServiceType,
+                    notification.MessageId,
+                    notification.ConsumerSessionId,
+                    notification.ProviderRequestSessionId,
+                    notification.ListenerUrl,
+                    notification.AttemptCount,
+                    notification.NextAttemptUtc,
+                    notification.CreatedUtc,
+                    notification.DeliveryDeadlineUtc,
+                    coalesce(publicationSession.SessionType, requestSession.SessionType),
+                    coalesce(publicationSession.SessionState, requestSession.SessionState),
+                    publicationSession.ListenerUrl,
+                    recipient.State,
+                    publication.ExpiredUtc,
+                    publication.EffectiveExpiryUtc,
+                    request.MessageId,
+                    request.ExpiredUtc,
+                    request.EffectiveExpiryUtc,
+                    @SqlUtcNow
+                from dbo.PublicationNotifications notification
+                left join dbo.ConsumerSubscriptionSessions publicationSession
+                       on publicationSession.SessionId = notification.ConsumerSessionId
+                left join dbo.ConsumerSubscriptionSessions requestSession
+                       on requestSession.SessionId = notification.ProviderRequestSessionId
+                left join dbo.ProviderPublicationRecipients recipient
+                       on recipient.MessageId = notification.MessageId
+                      and recipient.ConsumerSessionId = notification.ConsumerSessionId
+                left join dbo.ProviderPublications publication
+                       on publication.MessageId = notification.MessageId
+                left join dbo.ConsumerRequests request
+                       on request.MessageId = notification.MessageId
+                where notification.PublicationNotificationId = @NotificationId
+                  and notification.State = @SendingState
+                  and notification.LockOwner = @LockOwner
+                  and notification.LockedUntilUtc >= @SqlUtcNow;
+                """;
+
+            await using SqlCommand command = new(sql, connection);
+            command.Parameters.Add("@NotificationId", SqlDbType.UniqueIdentifier).Value = notificationId;
+            command.Parameters.Add("@LockOwner", SqlDbType.NVarChar, 128).Value = lockOwner;
+            command.Parameters.Add("@SendingState", SqlDbType.NVarChar, 32).Value = PublicationNotificationStates.Sending;
+            AddEligibilityParameters(command);
+
+            await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return PublicationNotificationEligibilityResult.OwnershipLost();
+            }
+
+            ClaimedRow row = new(
+                reader.GetGuid(0),
+                reader.GetString(1),
+                reader.GetGuid(2),
+                reader.IsDBNull(3) ? null : reader.GetGuid(3),
+                reader.IsDBNull(4) ? null : reader.GetGuid(4),
+                reader.GetString(5),
+                reader.GetInt32(6),
+                reader.IsDBNull(7) ? null : reader.GetDateTime(7),
+                reader.GetDateTime(8),
+                reader.IsDBNull(9) ? null : reader.GetDateTime(9),
+                reader.IsDBNull(10) ? null : reader.GetString(10),
+                reader.IsDBNull(11) ? null : reader.GetString(11),
+                reader.IsDBNull(12) ? null : reader.GetString(12),
+                reader.IsDBNull(13) ? null : reader.GetString(13),
+                reader.IsDBNull(14) ? null : reader.GetDateTime(14),
+                reader.IsDBNull(15) ? null : reader.GetDateTime(15),
+                reader.IsDBNull(16) ? null : reader.GetGuid(16),
+                reader.IsDBNull(17) ? null : reader.GetDateTime(17),
+                reader.IsDBNull(18) ? null : reader.GetDateTime(18),
+                reader.GetDateTime(19));
+
+            string? suppressionReason = GetSuppressionReason(row);
+            bool isDeliveryWindowExpired = IsDeliveryWindowExpired(row);
+            return PublicationNotificationEligibilityResult.Success(
+                suppressionReason is null,
+                suppressionReason,
+                isDeliveryWindowExpired);
+        }
+        catch (SqlException exception)
+        {
+            _logger.LogError(exception, "Database failure while rechecking notification eligibility. NotificationId: {NotificationId}.", notificationId);
+            return PublicationNotificationEligibilityResult.Failure(
+                ProviderPublicationRepositoryFailureKind.DatabaseFailure,
+                "Database failure while rechecking notification eligibility.");
+        }
+    }
+
     public Task<PublicationNotificationCompletionResult> MarkDeliveredAsync(
         Guid notificationId,
         string lockOwner,
@@ -780,6 +882,92 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
             cancellationToken);
     }
 
+    public async Task<PublicationNotificationSuppressionResult> SuppressRequestNotificationsForSessionAsync(
+        Guid providerRequestSessionId,
+        DateTime suppressedUtc,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using SqlConnection connection = new(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+            await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+            try
+            {
+                int suppressedCount = await SqlRequestNotificationSuppression.SuppressForSessionAsync(
+                    connection,
+                    transaction,
+                    providerRequestSessionId,
+                    suppressedUtc,
+                    PublicationNotificationSuppressionReasons.ProviderRequestSessionClosed,
+                    cancellationToken);
+
+                await transaction.CommitAsync(cancellationToken);
+                _logger.LogInformation(
+                    "Suppressed {SuppressedCount} request notifications for provider request session {ProviderRequestSessionId}.",
+                    suppressedCount,
+                    providerRequestSessionId);
+                return PublicationNotificationSuppressionResult.Success(suppressedCount);
+            }
+            catch
+            {
+                await RollbackQuietlyAsync(transaction, cancellationToken);
+                throw;
+            }
+        }
+        catch (SqlException exception)
+        {
+            _logger.LogError(exception, "Database failure while suppressing request notifications for provider request session {ProviderRequestSessionId}.", providerRequestSessionId);
+            return PublicationNotificationSuppressionResult.Failure(
+                ProviderPublicationRepositoryFailureKind.DatabaseFailure,
+                "Database failure while suppressing request notifications for provider request session.");
+        }
+    }
+
+    public async Task<PublicationNotificationSuppressionResult> SuppressRequestNotificationsForMessageAsync(
+        Guid requestMessageId,
+        DateTime suppressedUtc,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using SqlConnection connection = new(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+            await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+            try
+            {
+                int suppressedCount = await SqlRequestNotificationSuppression.SuppressForMessageAsync(
+                    connection,
+                    transaction,
+                    requestMessageId,
+                    suppressedUtc,
+                    PublicationNotificationSuppressionReasons.RequestExpired,
+                    cancellationToken);
+
+                await transaction.CommitAsync(cancellationToken);
+                _logger.LogInformation(
+                    "Suppressed {SuppressedCount} request notifications for request message {RequestMessageId}.",
+                    suppressedCount,
+                    requestMessageId);
+                return PublicationNotificationSuppressionResult.Success(suppressedCount);
+            }
+            catch
+            {
+                await RollbackQuietlyAsync(transaction, cancellationToken);
+                throw;
+            }
+        }
+        catch (SqlException exception)
+        {
+            _logger.LogError(exception, "Database failure while suppressing request notifications for request message {RequestMessageId}.", requestMessageId);
+            return PublicationNotificationSuppressionResult.Failure(
+                ProviderPublicationRepositoryFailureKind.DatabaseFailure,
+                "Database failure while suppressing request notifications for request message.");
+        }
+    }
+
     public async Task<PublicationNotificationQueryResult> GetPendingPublicationNotificationsAsync(
         int maxCount,
         CancellationToken cancellationToken)
@@ -935,6 +1123,11 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
     {
         command.Parameters.Add("@StatusCode", SqlDbType.Int).Value = (object?)statusCode ?? DBNull.Value;
         command.Parameters.Add("@LastError", SqlDbType.NVarChar, ErrorMaxLength).Value = TruncateError(error);
+        AddEligibilityParameters(command);
+    }
+
+    private static void AddEligibilityParameters(SqlCommand command)
+    {
         command.Parameters.Add("@PublicationServiceType", SqlDbType.NVarChar, 32).Value = NotificationServiceTypes.Publication;
         command.Parameters.Add("@RequestServiceType", SqlDbType.NVarChar, 32).Value = NotificationServiceTypes.Request;
         command.Parameters.Add("@ProviderRequestSessionType", SqlDbType.NVarChar, 64).Value = SubscriptionSessionTypes.ProviderRequestSubscription;

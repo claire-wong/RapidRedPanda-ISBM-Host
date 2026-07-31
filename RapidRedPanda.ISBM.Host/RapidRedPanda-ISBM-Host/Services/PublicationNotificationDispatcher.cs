@@ -179,6 +179,65 @@ public sealed class PublicationNotificationDispatcher : BackgroundService
             return;
         }
 
+        PublicationNotificationEligibilityResult eligibility = await repository.RecheckClaimedEligibilityAsync(
+            notification.NotificationId,
+            _lockOwner,
+            stoppingToken);
+
+        if (!eligibility.Succeeded)
+        {
+            _logger.LogWarning(
+                "Skipped notification {NotificationId} delivery because final eligibility recheck failed. ServiceType: {ServiceType}. MessageId: {MessageId}.",
+                notification.NotificationId,
+                notification.ServiceType,
+                notification.MessageId);
+            return;
+        }
+
+        if (!eligibility.HasOwnership)
+        {
+            _logger.LogInformation(
+                "Skipped notification {NotificationId} delivery because ownership was lost before send. ServiceType: {ServiceType}. MessageId: {MessageId}.",
+                notification.NotificationId,
+                notification.ServiceType,
+                notification.MessageId);
+            return;
+        }
+
+        if (!eligibility.IsEligible)
+        {
+            PublicationNotificationCompletionResult completion = await repository.MarkSuppressedAsync(
+                notification.NotificationId,
+                _lockOwner,
+                eligibility.SuppressionReason ?? PublicationNotificationSuppressionReasons.RecipientNotPending,
+                stoppingToken);
+            LogCompletionResult(notification, completion, "final eligibility suppression");
+            _logger.LogInformation(
+                "Suppressed notification {NotificationId} after final eligibility recheck. ServiceType: {ServiceType}. MessageId: {MessageId}. RecipientSessionId: {RecipientSessionId}. Reason: {Reason}.",
+                notification.NotificationId,
+                notification.ServiceType,
+                notification.MessageId,
+                recipientSessionId,
+                eligibility.SuppressionReason);
+            return;
+        }
+
+        if (eligibility.IsDeliveryWindowExpired)
+        {
+            PublicationNotificationCompletionResult completion = await repository.MarkExpiredAsync(
+                notification.NotificationId,
+                _lockOwner,
+                stoppingToken);
+            LogCompletionResult(notification, completion, "final eligibility expiration");
+            _logger.LogInformation(
+                "Expired notification {NotificationId} after final eligibility recheck. ServiceType: {ServiceType}. MessageId: {MessageId}. RecipientSessionId: {RecipientSessionId}.",
+                notification.NotificationId,
+                notification.ServiceType,
+                notification.MessageId,
+                recipientSessionId);
+            return;
+        }
+
         _logger.LogInformation(
             "Delivering notification {NotificationId}. ServiceType: {ServiceType}. MessageId: {MessageId}. RecipientSessionId: {RecipientSessionId}. LockOwner: {LockOwner}. Attempt: {Attempt}.",
             notification.NotificationId,
