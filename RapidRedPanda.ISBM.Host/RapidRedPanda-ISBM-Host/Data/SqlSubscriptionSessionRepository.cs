@@ -22,27 +22,6 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
         ConsumerSubscriptionSessionCreateData session,
         CancellationToken cancellationToken)
     {
-        return await InsertSubscriptionSessionAsync(
-            session,
-            SubscriptionSessionTypes.ConsumerPublicationSubscription,
-            cancellationToken);
-    }
-
-    public async Task<InsertSubscriptionSessionResult> InsertProviderRequestSessionAsync(
-        ConsumerSubscriptionSessionCreateData session,
-        CancellationToken cancellationToken)
-    {
-        return await InsertSubscriptionSessionAsync(
-            session,
-            SubscriptionSessionTypes.ProviderRequestSubscription,
-            cancellationToken);
-    }
-
-    private async Task<InsertSubscriptionSessionResult> InsertSubscriptionSessionAsync(
-        ConsumerSubscriptionSessionCreateData session,
-        string sessionType,
-        CancellationToken cancellationToken)
-    {
         try
         {
             await using SqlConnection connection = new(_connectionString);
@@ -80,7 +59,7 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
                 {
                     command.Parameters.Add("@SessionId", SqlDbType.UniqueIdentifier).Value = session.SessionId;
                     command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = session.ChannelId;
-                    command.Parameters.Add("@SessionType", SqlDbType.NVarChar, 64).Value = sessionType;
+                    command.Parameters.Add("@SessionType", SqlDbType.NVarChar, 64).Value = SubscriptionSessionTypes.ConsumerPublicationSubscription;
                     command.Parameters.Add("@SessionState", SqlDbType.NVarChar, 32).Value = SubscriptionSessionStates.Open;
                     command.Parameters.Add("@AzureTopicName", SqlDbType.NVarChar, 260).Value = session.AzureTopicName;
                     command.Parameters.Add("@AzureSubscriptionName", SqlDbType.NVarChar, 260).Value = session.AzureSubscriptionName;
@@ -240,19 +219,7 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
                     }
                 }
 
-                int suppressedCount = await SqlRequestNotificationSuppression.SuppressForSessionAsync(
-                    connection,
-                    transaction,
-                    sessionId,
-                    closedUtc,
-                    PublicationNotificationSuppressionReasons.ProviderRequestSessionClosed,
-                    cancellationToken);
-
                 await transaction.CommitAsync(cancellationToken);
-                _logger.LogInformation(
-                    "Suppressed {SuppressedCount} request notifications while closing subscription session {SessionId}.",
-                    suppressedCount,
-                    sessionId);
                 return CloseSubscriptionSessionResult.Success();
             }
             catch

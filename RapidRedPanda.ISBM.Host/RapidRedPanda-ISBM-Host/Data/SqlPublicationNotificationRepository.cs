@@ -49,8 +49,9 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                            NextAttemptUtc = null,
                            LockOwner = null,
                            LockedUntilUtc = null
-                     from dbo.PublicationNotifications notification with (updlock, readpast, rowlock)
+                     from dbo.Notifications notification with (updlock, readpast, rowlock)
                      where notification.DeliveryDeadlineUtc <= @SqlUtcNow
+                       and notification.NotificationServiceType in (@PublicationServiceType, @RequestServiceType)
                        and
                        (
                           notification.State in (@PendingState, @RetryScheduledState)
@@ -63,11 +64,13 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
 
                     declare @Claimed table
                     (
-                         PublicationNotificationId uniqueidentifier not null,
+                         NotificationId uniqueidentifier not null,
                          NotificationServiceType nvarchar(32) not null,
                          MessageId uniqueidentifier not null,
-                         ConsumerSessionId uniqueidentifier null,
+                         RequestMessageId uniqueidentifier null,
+                         ConsumerSubscriptionSessionId uniqueidentifier null,
                          ProviderRequestSessionId uniqueidentifier null,
+                         ConsumerRequestSessionId uniqueidentifier null,
                          ListenerUrl nvarchar(2048) not null,
                         AttemptCount int not null,
                         NextAttemptUtc datetime2(7) null,
@@ -78,9 +81,11 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                     ;with due as
                     (
                         select top (@BatchSize)
-                            notification.PublicationNotificationId
-                         from dbo.PublicationNotifications notification with (updlock, readpast, rowlock)
+                            notification.NotificationId
+                         from dbo.Notifications notification with (updlock, readpast, rowlock)
                          where
+                         notification.NotificationServiceType in (@PublicationServiceType, @RequestServiceType)
+                         and
                          (
                             (
                                 notification.State in (@PendingState, @RetryScheduledState)
@@ -95,7 +100,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                                 and (notification.DeliveryDeadlineUtc is null or notification.DeliveryDeadlineUtc > @SqlUtcNow)
                             )
                         )
-                        order by notification.NextAttemptUtc, notification.CreatedUtc, notification.PublicationNotificationId
+                        order by notification.NextAttemptUtc, notification.CreatedUtc, notification.NotificationId
                     )
                     update notification
                        set State = @SendingState,
@@ -104,33 +109,37 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                            LastAttemptUtc = @SqlUtcNow,
                            AttemptCount = AttemptCount + 1
                     output
-                         inserted.PublicationNotificationId,
+                         inserted.NotificationId,
                          inserted.NotificationServiceType,
                          inserted.MessageId,
-                         inserted.ConsumerSessionId,
+                         inserted.RequestMessageId,
+                         inserted.ConsumerSubscriptionSessionId,
                          inserted.ProviderRequestSessionId,
+                         inserted.ConsumerRequestSessionId,
                          inserted.ListenerUrl,
                         inserted.AttemptCount,
                         inserted.NextAttemptUtc,
                         inserted.CreatedUtc,
                         inserted.DeliveryDeadlineUtc
                     into @Claimed
-                    from dbo.PublicationNotifications notification
+                    from dbo.Notifications notification
                     inner join due
-                            on due.PublicationNotificationId = notification.PublicationNotificationId;
+                            on due.NotificationId = notification.NotificationId;
 
                     select
-                         claimed.PublicationNotificationId,
+                         claimed.NotificationId,
                          claimed.NotificationServiceType,
                          claimed.MessageId,
-                         claimed.ConsumerSessionId,
+                         claimed.RequestMessageId,
+                         claimed.ConsumerSubscriptionSessionId,
                          claimed.ProviderRequestSessionId,
+                         claimed.ConsumerRequestSessionId,
                          claimed.ListenerUrl,
                         claimed.AttemptCount,
                         claimed.NextAttemptUtc,
                         claimed.CreatedUtc,
                         claimed.DeliveryDeadlineUtc,
-                        coalesce(publicationSession.SessionType, requestSession.SessionType),
+                        publicationSession.SessionType,
                         coalesce(publicationSession.SessionState, requestSession.SessionState),
                         publicationSession.ListenerUrl,
                         recipient.State,
@@ -142,17 +151,17 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                         @SqlUtcNow
                     from @Claimed claimed
                     left join dbo.ConsumerSubscriptionSessions publicationSession
-                           on publicationSession.SessionId = claimed.ConsumerSessionId
-                    left join dbo.ConsumerSubscriptionSessions requestSession
+                           on publicationSession.SessionId = claimed.ConsumerSubscriptionSessionId
+                    left join dbo.ProviderRequestSessions requestSession
                            on requestSession.SessionId = claimed.ProviderRequestSessionId
                     left join dbo.ProviderPublicationRecipients recipient
                            on recipient.MessageId = claimed.MessageId
-                          and recipient.ConsumerSessionId = claimed.ConsumerSessionId
+                          and recipient.ConsumerSessionId = claimed.ConsumerSubscriptionSessionId
                     left join dbo.ProviderPublications publication
                            on publication.MessageId = claimed.MessageId
                     left join dbo.ConsumerRequests request
                            on request.MessageId = claimed.MessageId
-                    order by claimed.CreatedUtc, claimed.PublicationNotificationId;
+                    order by claimed.CreatedUtc, claimed.NotificationId;
                     """;
 
                 List<ClaimedRow> rows = [];
@@ -165,6 +174,8 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                     command.Parameters.Add("@RetryScheduledState", SqlDbType.NVarChar, 32).Value = PublicationNotificationStates.RetryScheduled;
                     command.Parameters.Add("@SendingState", SqlDbType.NVarChar, 32).Value = PublicationNotificationStates.Sending;
                     command.Parameters.Add("@ExpiredState", SqlDbType.NVarChar, 32).Value = PublicationNotificationStates.Expired;
+                    command.Parameters.Add("@PublicationServiceType", SqlDbType.NVarChar, 32).Value = NotificationServiceTypes.Publication;
+                    command.Parameters.Add("@RequestServiceType", SqlDbType.NVarChar, 32).Value = NotificationServiceTypes.Request;
                     command.Parameters.Add("@DeliveryWindowExpiredReason", SqlDbType.NVarChar, 64).Value =
                         PublicationNotificationSuppressionReasons.DeliveryWindowExpired;
 
@@ -177,21 +188,23 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                             reader.GetGuid(2),
                             reader.IsDBNull(3) ? null : reader.GetGuid(3),
                             reader.IsDBNull(4) ? null : reader.GetGuid(4),
-                            reader.GetString(5),
-                            reader.GetInt32(6),
-                            reader.IsDBNull(7) ? null : reader.GetDateTime(7),
-                            reader.GetDateTime(8),
+                            reader.IsDBNull(5) ? null : reader.GetGuid(5),
+                            reader.IsDBNull(6) ? null : reader.GetGuid(6),
+                            reader.GetString(7),
+                            reader.GetInt32(8),
                             reader.IsDBNull(9) ? null : reader.GetDateTime(9),
-                            reader.IsDBNull(10) ? null : reader.GetString(10),
-                            reader.IsDBNull(11) ? null : reader.GetString(11),
+                            reader.GetDateTime(10),
+                            reader.IsDBNull(11) ? null : reader.GetDateTime(11),
                             reader.IsDBNull(12) ? null : reader.GetString(12),
                             reader.IsDBNull(13) ? null : reader.GetString(13),
-                            reader.IsDBNull(14) ? null : reader.GetDateTime(14),
-                            reader.IsDBNull(15) ? null : reader.GetDateTime(15),
-                            reader.IsDBNull(16) ? null : reader.GetGuid(16),
+                            reader.IsDBNull(14) ? null : reader.GetString(14),
+                            reader.IsDBNull(15) ? null : reader.GetString(15),
+                            reader.IsDBNull(16) ? null : reader.GetDateTime(16),
                             reader.IsDBNull(17) ? null : reader.GetDateTime(17),
-                            reader.IsDBNull(18) ? null : reader.GetDateTime(18),
-                            reader.GetDateTime(19)));
+                            reader.IsDBNull(18) ? null : reader.GetGuid(18),
+                            reader.IsDBNull(19) ? null : reader.GetDateTime(19),
+                            reader.IsDBNull(20) ? null : reader.GetDateTime(20),
+                            reader.GetDateTime(21)));
                     }
                 }
 
@@ -210,8 +223,10 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                         row.NotificationId,
                         row.ServiceType,
                         row.MessageId,
-                        row.ConsumerSessionId,
+                        row.NotificationRequestMessageId,
+                        row.ConsumerSubscriptionSessionId,
                         row.ProviderRequestSessionId,
+                        row.ConsumerRequestSessionId,
                         row.ListenerUrl,
                         topics,
                         row.AttemptCount,
@@ -255,17 +270,19 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                 declare @SqlUtcNow datetime2(7) = sysutcdatetime();
 
                 select
-                    notification.PublicationNotificationId,
+                    notification.NotificationId,
                     notification.NotificationServiceType,
                     notification.MessageId,
-                    notification.ConsumerSessionId,
+                    notification.RequestMessageId,
+                    notification.ConsumerSubscriptionSessionId,
                     notification.ProviderRequestSessionId,
+                    notification.ConsumerRequestSessionId,
                     notification.ListenerUrl,
                     notification.AttemptCount,
                     notification.NextAttemptUtc,
                     notification.CreatedUtc,
                     notification.DeliveryDeadlineUtc,
-                    coalesce(publicationSession.SessionType, requestSession.SessionType),
+                    publicationSession.SessionType,
                     coalesce(publicationSession.SessionState, requestSession.SessionState),
                     publicationSession.ListenerUrl,
                     recipient.State,
@@ -275,19 +292,19 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                     request.ExpiredUtc,
                     request.EffectiveExpiryUtc,
                     @SqlUtcNow
-                from dbo.PublicationNotifications notification
+                from dbo.Notifications notification
                 left join dbo.ConsumerSubscriptionSessions publicationSession
-                       on publicationSession.SessionId = notification.ConsumerSessionId
-                left join dbo.ConsumerSubscriptionSessions requestSession
+                       on publicationSession.SessionId = notification.ConsumerSubscriptionSessionId
+                left join dbo.ProviderRequestSessions requestSession
                        on requestSession.SessionId = notification.ProviderRequestSessionId
                 left join dbo.ProviderPublicationRecipients recipient
                        on recipient.MessageId = notification.MessageId
-                      and recipient.ConsumerSessionId = notification.ConsumerSessionId
+                      and recipient.ConsumerSessionId = notification.ConsumerSubscriptionSessionId
                 left join dbo.ProviderPublications publication
                        on publication.MessageId = notification.MessageId
                 left join dbo.ConsumerRequests request
                        on request.MessageId = notification.MessageId
-                where notification.PublicationNotificationId = @NotificationId
+                where notification.NotificationId = @NotificationId
                   and notification.State = @SendingState
                   and notification.LockOwner = @LockOwner
                   and notification.LockedUntilUtc >= @SqlUtcNow;
@@ -311,21 +328,23 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                 reader.GetGuid(2),
                 reader.IsDBNull(3) ? null : reader.GetGuid(3),
                 reader.IsDBNull(4) ? null : reader.GetGuid(4),
-                reader.GetString(5),
-                reader.GetInt32(6),
-                reader.IsDBNull(7) ? null : reader.GetDateTime(7),
-                reader.GetDateTime(8),
+                reader.IsDBNull(5) ? null : reader.GetGuid(5),
+                reader.IsDBNull(6) ? null : reader.GetGuid(6),
+                reader.GetString(7),
+                reader.GetInt32(8),
                 reader.IsDBNull(9) ? null : reader.GetDateTime(9),
-                reader.IsDBNull(10) ? null : reader.GetString(10),
-                reader.IsDBNull(11) ? null : reader.GetString(11),
+                reader.GetDateTime(10),
+                reader.IsDBNull(11) ? null : reader.GetDateTime(11),
                 reader.IsDBNull(12) ? null : reader.GetString(12),
                 reader.IsDBNull(13) ? null : reader.GetString(13),
-                reader.IsDBNull(14) ? null : reader.GetDateTime(14),
-                reader.IsDBNull(15) ? null : reader.GetDateTime(15),
-                reader.IsDBNull(16) ? null : reader.GetGuid(16),
+                reader.IsDBNull(14) ? null : reader.GetString(14),
+                reader.IsDBNull(15) ? null : reader.GetString(15),
+                reader.IsDBNull(16) ? null : reader.GetDateTime(16),
                 reader.IsDBNull(17) ? null : reader.GetDateTime(17),
-                reader.IsDBNull(18) ? null : reader.GetDateTime(18),
-                reader.GetDateTime(19));
+                reader.IsDBNull(18) ? null : reader.GetGuid(18),
+                reader.IsDBNull(19) ? null : reader.GetDateTime(19),
+                reader.IsDBNull(20) ? null : reader.GetDateTime(20),
+                reader.GetDateTime(21));
 
             string? suppressionReason = GetSuppressionReason(row);
             bool isDeliveryWindowExpired = IsDeliveryWindowExpired(row);
@@ -352,14 +371,14 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
         const string sql = """
             declare @SqlUtcNow datetime2(7) = sysutcdatetime();
 
-            update dbo.PublicationNotifications
+            update dbo.Notifications
                set State = @DeliveredState,
                    ResolvedUtc = @SqlUtcNow,
                    LastStatusCode = @StatusCode,
                    LastError = null,
                    LockOwner = null,
                    LockedUntilUtc = null
-             where PublicationNotificationId = @NotificationId
+             where NotificationId = @NotificationId
                and State = @SendingState
                and LockOwner = @LockOwner
                and LockedUntilUtc >= @SqlUtcNow;
@@ -395,8 +414,8 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
             if exists
             (
                 select 1
-                from dbo.PublicationNotifications notification
-                where notification.PublicationNotificationId = @NotificationId
+                from dbo.Notifications notification
+                where notification.NotificationId = @NotificationId
                   and notification.State = @SendingState
                   and notification.LockOwner = @LockOwner
                   and notification.LockedUntilUtc >= @SqlUtcNow
@@ -405,7 +424,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                 select @ResolutionReason =
                     case
                         when notification.NotificationServiceType = @PublicationServiceType
-                             and (notification.ConsumerSessionId is null or notification.ProviderRequestSessionId is not null) then @InvalidNotificationShapeReason
+                             and (notification.ConsumerSubscriptionSessionId is null or notification.ProviderRequestSessionId is not null) then @InvalidNotificationShapeReason
                         when notification.NotificationServiceType = @PublicationServiceType
                              and (publicationSession.SessionState is null or publicationSession.SessionState <> @OpenSessionState) then @SessionClosedReason
                         when notification.NotificationServiceType = @PublicationServiceType
@@ -415,9 +434,9 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                         when notification.NotificationServiceType = @PublicationServiceType
                              and (publication.ExpiredUtc is not null or publication.EffectiveExpiryUtc <= @SqlUtcNow) then @PublicationExpiredReason
                         when notification.NotificationServiceType = @RequestServiceType
-                             and (notification.ProviderRequestSessionId is null or notification.ConsumerSessionId is not null) then @InvalidNotificationShapeReason
+                             and (notification.ProviderRequestSessionId is null or notification.ConsumerSubscriptionSessionId is not null) then @InvalidNotificationShapeReason
                         when notification.NotificationServiceType = @RequestServiceType
-                             and (requestSession.SessionId is null or requestSession.SessionType <> @ProviderRequestSessionType or requestSession.SessionState <> @OpenSessionState) then @SessionClosedReason
+                             and (requestSession.SessionId is null or requestSession.SessionState <> @OpenSessionState) then @SessionClosedReason
                         when notification.NotificationServiceType = @RequestServiceType
                              and (notification.ListenerUrl is null or ltrim(rtrim(notification.ListenerUrl)) = N'') then @ListenerMissingReason
                         when notification.NotificationServiceType = @RequestServiceType
@@ -427,23 +446,23 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                         when notification.NotificationServiceType not in (@PublicationServiceType, @RequestServiceType) then @InvalidNotificationShapeReason
                         else null
                     end
-                from dbo.PublicationNotifications notification
+                from dbo.Notifications notification
                 left join dbo.ConsumerSubscriptionSessions publicationSession
-                       on publicationSession.SessionId = notification.ConsumerSessionId
-                left join dbo.ConsumerSubscriptionSessions requestSession
+                       on publicationSession.SessionId = notification.ConsumerSubscriptionSessionId
+                left join dbo.ProviderRequestSessions requestSession
                        on requestSession.SessionId = notification.ProviderRequestSessionId
                 left join dbo.ProviderPublicationRecipients recipient
                        on recipient.MessageId = notification.MessageId
-                      and recipient.ConsumerSessionId = notification.ConsumerSessionId
+                      and recipient.ConsumerSessionId = notification.ConsumerSubscriptionSessionId
                 left join dbo.ProviderPublications publication
                        on publication.MessageId = notification.MessageId
                 left join dbo.ConsumerRequests request
                        on request.MessageId = notification.MessageId
-                where notification.PublicationNotificationId = @NotificationId;
+                where notification.NotificationId = @NotificationId;
 
                 if @ResolutionReason is not null
                 begin
-                    update dbo.PublicationNotifications
+                    update dbo.Notifications
                        set State = @SuppressedState,
                            ResolvedUtc = @SqlUtcNow,
                            ResolutionReason = @ResolutionReason,
@@ -452,7 +471,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                            NextAttemptUtc = null,
                            LockOwner = null,
                            LockedUntilUtc = null
-                     where PublicationNotificationId = @NotificationId
+                     where NotificationId = @NotificationId
                        and State = @SendingState
                        and LockOwner = @LockOwner
                        and LockedUntilUtc >= @SqlUtcNow;
@@ -465,12 +484,12 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                 else if exists
                 (
                     select 1
-                    from dbo.PublicationNotifications notification
-                    where notification.PublicationNotificationId = @NotificationId
+                    from dbo.Notifications notification
+                    where notification.NotificationId = @NotificationId
                       and notification.DeliveryDeadlineUtc <= @SqlUtcNow
                 )
                 begin
-                    update dbo.PublicationNotifications
+                    update dbo.Notifications
                        set State = @ExpiredState,
                            ResolvedUtc = @SqlUtcNow,
                            ResolutionReason = @DeliveryWindowExpiredReason,
@@ -479,7 +498,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                            NextAttemptUtc = null,
                            LockOwner = null,
                            LockedUntilUtc = null
-                     where PublicationNotificationId = @NotificationId
+                     where NotificationId = @NotificationId
                        and State = @SendingState
                        and LockOwner = @LockOwner
                        and LockedUntilUtc >= @SqlUtcNow;
@@ -495,12 +514,12 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                 else if exists
                 (
                     select 1
-                    from dbo.PublicationNotifications notification
-                    where notification.PublicationNotificationId = @NotificationId
+                    from dbo.Notifications notification
+                    where notification.NotificationId = @NotificationId
                       and notification.DeliveryDeadlineUtc <= dateadd(second, @RetryDelaySeconds, @SqlUtcNow)
                 )
                 begin
-                    update dbo.PublicationNotifications
+                    update dbo.Notifications
                        set State = @ExpiredState,
                            ResolvedUtc = @SqlUtcNow,
                            ResolutionReason = @DeliveryWindowExpiredReason,
@@ -509,7 +528,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                            NextAttemptUtc = null,
                            LockOwner = null,
                            LockedUntilUtc = null
-                     where PublicationNotificationId = @NotificationId
+                     where NotificationId = @NotificationId
                        and State = @SendingState
                        and LockOwner = @LockOwner
                        and LockedUntilUtc >= @SqlUtcNow;
@@ -524,7 +543,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                 end
                 else
                 begin
-                    update dbo.PublicationNotifications
+                    update dbo.Notifications
                        set State = @RetryScheduledState,
                            NextAttemptUtc = dateadd(second, @RetryDelaySeconds, @SqlUtcNow),
                            LastAttemptUtc = @SqlUtcNow,
@@ -532,7 +551,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                            LastError = @LastError,
                            LockOwner = null,
                            LockedUntilUtc = null
-                     where PublicationNotificationId = @NotificationId
+                     where NotificationId = @NotificationId
                        and State = @SendingState
                        and LockOwner = @LockOwner
                        and LockedUntilUtc >= @SqlUtcNow;
@@ -577,8 +596,8 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
             if exists
             (
                 select 1
-                from dbo.PublicationNotifications notification
-                where notification.PublicationNotificationId = @NotificationId
+                from dbo.Notifications notification
+                where notification.NotificationId = @NotificationId
                   and notification.State = @SendingState
                   and notification.LockOwner = @LockOwner
                   and notification.LockedUntilUtc >= @SqlUtcNow
@@ -587,7 +606,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                 select @ResolutionReason =
                     case
                         when notification.NotificationServiceType = @PublicationServiceType
-                             and (notification.ConsumerSessionId is null or notification.ProviderRequestSessionId is not null) then @InvalidNotificationShapeReason
+                             and (notification.ConsumerSubscriptionSessionId is null or notification.ProviderRequestSessionId is not null) then @InvalidNotificationShapeReason
                         when notification.NotificationServiceType = @PublicationServiceType
                              and (publicationSession.SessionState is null or publicationSession.SessionState <> @OpenSessionState) then @SessionClosedReason
                         when notification.NotificationServiceType = @PublicationServiceType
@@ -597,9 +616,9 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                         when notification.NotificationServiceType = @PublicationServiceType
                              and (publication.ExpiredUtc is not null or publication.EffectiveExpiryUtc <= @SqlUtcNow) then @PublicationExpiredReason
                         when notification.NotificationServiceType = @RequestServiceType
-                             and (notification.ProviderRequestSessionId is null or notification.ConsumerSessionId is not null) then @InvalidNotificationShapeReason
+                             and (notification.ProviderRequestSessionId is null or notification.ConsumerSubscriptionSessionId is not null) then @InvalidNotificationShapeReason
                         when notification.NotificationServiceType = @RequestServiceType
-                             and (requestSession.SessionId is null or requestSession.SessionType <> @ProviderRequestSessionType or requestSession.SessionState <> @OpenSessionState) then @SessionClosedReason
+                             and (requestSession.SessionId is null or requestSession.SessionState <> @OpenSessionState) then @SessionClosedReason
                         when notification.NotificationServiceType = @RequestServiceType
                              and (notification.ListenerUrl is null or ltrim(rtrim(notification.ListenerUrl)) = N'') then @ListenerMissingReason
                         when notification.NotificationServiceType = @RequestServiceType
@@ -609,23 +628,23 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                         when notification.NotificationServiceType not in (@PublicationServiceType, @RequestServiceType) then @InvalidNotificationShapeReason
                         else null
                     end
-                from dbo.PublicationNotifications notification
+                from dbo.Notifications notification
                 left join dbo.ConsumerSubscriptionSessions publicationSession
-                       on publicationSession.SessionId = notification.ConsumerSessionId
-                left join dbo.ConsumerSubscriptionSessions requestSession
+                       on publicationSession.SessionId = notification.ConsumerSubscriptionSessionId
+                left join dbo.ProviderRequestSessions requestSession
                        on requestSession.SessionId = notification.ProviderRequestSessionId
                 left join dbo.ProviderPublicationRecipients recipient
                        on recipient.MessageId = notification.MessageId
-                      and recipient.ConsumerSessionId = notification.ConsumerSessionId
+                      and recipient.ConsumerSessionId = notification.ConsumerSubscriptionSessionId
                 left join dbo.ProviderPublications publication
                        on publication.MessageId = notification.MessageId
                 left join dbo.ConsumerRequests request
                        on request.MessageId = notification.MessageId
-                where notification.PublicationNotificationId = @NotificationId;
+                where notification.NotificationId = @NotificationId;
 
                 if @ResolutionReason is not null
                 begin
-                    update dbo.PublicationNotifications
+                    update dbo.Notifications
                        set State = @SuppressedState,
                            ResolvedUtc = @SqlUtcNow,
                            ResolutionReason = @ResolutionReason,
@@ -634,7 +653,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                            NextAttemptUtc = null,
                            LockOwner = null,
                            LockedUntilUtc = null
-                     where PublicationNotificationId = @NotificationId
+                     where NotificationId = @NotificationId
                        and State = @SendingState
                        and LockOwner = @LockOwner
                        and LockedUntilUtc >= @SqlUtcNow;
@@ -647,12 +666,12 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                 else if exists
                 (
                     select 1
-                    from dbo.PublicationNotifications notification
-                    where notification.PublicationNotificationId = @NotificationId
+                    from dbo.Notifications notification
+                    where notification.NotificationId = @NotificationId
                       and notification.DeliveryDeadlineUtc <= @SqlUtcNow
                 )
                 begin
-                    update dbo.PublicationNotifications
+                    update dbo.Notifications
                        set State = @ExpiredState,
                            ResolvedUtc = @SqlUtcNow,
                            ResolutionReason = @DeliveryWindowExpiredReason,
@@ -661,7 +680,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                            NextAttemptUtc = null,
                            LockOwner = null,
                            LockedUntilUtc = null
-                     where PublicationNotificationId = @NotificationId
+                     where NotificationId = @NotificationId
                        and State = @SendingState
                        and LockOwner = @LockOwner
                        and LockedUntilUtc >= @SqlUtcNow;
@@ -677,12 +696,12 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                 else if exists
                 (
                     select 1
-                    from dbo.PublicationNotifications notification
-                    where notification.PublicationNotificationId = @NotificationId
+                    from dbo.Notifications notification
+                    where notification.NotificationId = @NotificationId
                       and notification.AttemptCount >= @MaximumAttempts
                 )
                 begin
-                    update dbo.PublicationNotifications
+                    update dbo.Notifications
                        set State = @FailedState,
                            ResolvedUtc = @SqlUtcNow,
                            LastAttemptUtc = @SqlUtcNow,
@@ -690,7 +709,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                            LastError = @LastError,
                            LockOwner = null,
                            LockedUntilUtc = null
-                     where PublicationNotificationId = @NotificationId
+                     where NotificationId = @NotificationId
                        and State = @SendingState
                        and LockOwner = @LockOwner
                        and LockedUntilUtc >= @SqlUtcNow;
@@ -703,12 +722,12 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                 else if exists
                 (
                     select 1
-                    from dbo.PublicationNotifications notification
-                    where notification.PublicationNotificationId = @NotificationId
+                    from dbo.Notifications notification
+                    where notification.NotificationId = @NotificationId
                       and notification.DeliveryDeadlineUtc <= dateadd(second, @RetryDelaySeconds, @SqlUtcNow)
                 )
                 begin
-                    update dbo.PublicationNotifications
+                    update dbo.Notifications
                        set State = @ExpiredState,
                            ResolvedUtc = @SqlUtcNow,
                            ResolutionReason = @DeliveryWindowExpiredReason,
@@ -717,7 +736,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                            NextAttemptUtc = null,
                            LockOwner = null,
                            LockedUntilUtc = null
-                     where PublicationNotificationId = @NotificationId
+                     where NotificationId = @NotificationId
                        and State = @SendingState
                        and LockOwner = @LockOwner
                        and LockedUntilUtc >= @SqlUtcNow;
@@ -732,7 +751,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                 end
                 else
                 begin
-                    update dbo.PublicationNotifications
+                    update dbo.Notifications
                        set State = @RetryScheduledState,
                            NextAttemptUtc = dateadd(second, @RetryDelaySeconds, @SqlUtcNow),
                            LastAttemptUtc = @SqlUtcNow,
@@ -740,7 +759,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                            LastError = @LastError,
                            LockOwner = null,
                            LockedUntilUtc = null
-                     where PublicationNotificationId = @NotificationId
+                     where NotificationId = @NotificationId
                        and State = @SendingState
                        and LockOwner = @LockOwner
                        and LockedUntilUtc >= @SqlUtcNow;
@@ -780,7 +799,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
         const string sql = """
             declare @SqlUtcNow datetime2(7) = sysutcdatetime();
 
-            update dbo.PublicationNotifications
+            update dbo.Notifications
                set State = @FailedState,
                    ResolvedUtc = @SqlUtcNow,
                    LastAttemptUtc = @SqlUtcNow,
@@ -788,7 +807,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                    LastError = @LastError,
                    LockOwner = null,
                    LockedUntilUtc = null
-             where PublicationNotificationId = @NotificationId
+             where NotificationId = @NotificationId
                and State = @SendingState
                and LockOwner = @LockOwner
                and LockedUntilUtc >= @SqlUtcNow;
@@ -818,7 +837,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
         const string sql = """
             declare @SqlUtcNow datetime2(7) = sysutcdatetime();
 
-            update dbo.PublicationNotifications
+            update dbo.Notifications
                set State = @SuppressedState,
                    ResolvedUtc = @SqlUtcNow,
                    ResolutionReason = @ResolutionReason,
@@ -826,7 +845,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                    NextAttemptUtc = null,
                    LockOwner = null,
                    LockedUntilUtc = null
-             where PublicationNotificationId = @NotificationId
+             where NotificationId = @NotificationId
                and State = @SendingState
                and LockOwner = @LockOwner
                and LockedUntilUtc >= @SqlUtcNow;
@@ -854,14 +873,14 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
         const string sql = """
             declare @SqlUtcNow datetime2(7) = sysutcdatetime();
 
-            update dbo.PublicationNotifications
+            update dbo.Notifications
                set State = @ExpiredState,
                    ResolvedUtc = @SqlUtcNow,
                    ResolutionReason = @DeliveryWindowExpiredReason,
                    NextAttemptUtc = null,
                    LockOwner = null,
                    LockedUntilUtc = null
-             where PublicationNotificationId = @NotificationId
+             where NotificationId = @NotificationId
                and State = @SendingState
                and LockOwner = @LockOwner
                and LockedUntilUtc >= @SqlUtcNow;
@@ -984,11 +1003,13 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
 
             const string notificationSql = """
                  select top (@MaxCount)
-                     PublicationNotificationId,
+                     NotificationId,
                      NotificationServiceType,
                      MessageId,
-                     ConsumerSessionId,
+                     RequestMessageId,
+                     ConsumerSubscriptionSessionId,
                      ProviderRequestSessionId,
+                     ConsumerRequestSessionId,
                      ListenerUrl,
                     State,
                     AttemptCount,
@@ -996,10 +1017,10 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                     CreatedUtc,
                     DeliveryDeadlineUtc,
                     ResolvedUtc
-                 from dbo.PublicationNotifications
+                 from dbo.Notifications
                  where NotificationServiceType = @PublicationServiceType
                    and State in (@PendingState, @RetryScheduledState)
-                 order by CreatedUtc, PublicationNotificationId;
+                 order by CreatedUtc, NotificationId;
                 """;
 
             List<PublicationNotificationData> notifications = [];
@@ -1019,14 +1040,16 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
                         reader.GetGuid(2),
                         reader.IsDBNull(3) ? null : reader.GetGuid(3),
                         reader.IsDBNull(4) ? null : reader.GetGuid(4),
-                        reader.GetString(5),
+                        reader.IsDBNull(5) ? null : reader.GetGuid(5),
+                        reader.IsDBNull(6) ? null : reader.GetGuid(6),
+                        reader.GetString(7),
                         [],
-                        reader.GetString(6),
-                        reader.GetInt32(7),
-                        reader.IsDBNull(8) ? null : reader.GetDateTime(8),
-                        reader.GetDateTime(9),
+                        reader.GetString(8),
+                        reader.GetInt32(9),
                         reader.IsDBNull(10) ? null : reader.GetDateTime(10),
-                        reader.IsDBNull(11) ? null : reader.GetDateTime(11)));
+                        reader.GetDateTime(11),
+                        reader.IsDBNull(12) ? null : reader.GetDateTime(12),
+                        reader.IsDBNull(13) ? null : reader.GetDateTime(13)));
                 }
             }
 
@@ -1130,7 +1153,6 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
     {
         command.Parameters.Add("@PublicationServiceType", SqlDbType.NVarChar, 32).Value = NotificationServiceTypes.Publication;
         command.Parameters.Add("@RequestServiceType", SqlDbType.NVarChar, 32).Value = NotificationServiceTypes.Request;
-        command.Parameters.Add("@ProviderRequestSessionType", SqlDbType.NVarChar, 64).Value = SubscriptionSessionTypes.ProviderRequestSubscription;
         command.Parameters.Add("@OpenSessionState", SqlDbType.NVarChar, 32).Value = SubscriptionSessionStates.Open;
         command.Parameters.Add("@RecipientPendingState", SqlDbType.NVarChar, 32).Value = ProviderPublicationRecipientStates.Pending;
         command.Parameters.Add("@SuppressedState", SqlDbType.NVarChar, 32).Value = PublicationNotificationStates.Suppressed;
@@ -1155,14 +1177,14 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
     {
         const string sql = """
             select TopicValue
-            from dbo.PublicationNotificationTopics
-            where PublicationNotificationId = @PublicationNotificationId
+            from dbo.NotificationTopics
+            where NotificationId = @NotificationId
             order by TopicOrdinal;
             """;
 
         List<string> topics = [];
         await using SqlCommand command = new(sql, connection, transaction);
-        command.Parameters.Add("@PublicationNotificationId", SqlDbType.UniqueIdentifier).Value = notificationId;
+        command.Parameters.Add("@NotificationId", SqlDbType.UniqueIdentifier).Value = notificationId;
 
         await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
@@ -1185,7 +1207,10 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
 
     private static string? GetPublicationSuppressionReason(ClaimedRow row)
     {
-        if (row.ConsumerSessionId is null || row.ProviderRequestSessionId is not null)
+        if (row.ConsumerSubscriptionSessionId is null ||
+            row.ProviderRequestSessionId is not null ||
+            row.ConsumerRequestSessionId is not null ||
+            row.NotificationRequestMessageId is not null)
         {
             return PublicationNotificationSuppressionReasons.InvalidNotificationShape;
         }
@@ -1216,13 +1241,15 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
 
     private static string? GetRequestSuppressionReason(ClaimedRow row)
     {
-        if (row.ProviderRequestSessionId is null || row.ConsumerSessionId is not null)
+        if (row.ProviderRequestSessionId is null ||
+            row.ConsumerSubscriptionSessionId is not null ||
+            row.ConsumerRequestSessionId is not null ||
+            row.NotificationRequestMessageId is not null)
         {
             return PublicationNotificationSuppressionReasons.InvalidNotificationShape;
         }
 
-        if (!string.Equals(row.SessionType, SubscriptionSessionTypes.ProviderRequestSubscription, StringComparison.Ordinal) ||
-            !string.Equals(row.SessionState, SubscriptionSessionStates.Open, StringComparison.Ordinal))
+        if (!string.Equals(row.SessionState, SubscriptionSessionStates.Open, StringComparison.Ordinal))
         {
             return PublicationNotificationSuppressionReasons.SessionClosed;
         }
@@ -1232,7 +1259,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
             return PublicationNotificationSuppressionReasons.ListenerMissing;
         }
 
-        if (row.RequestMessageId is null)
+        if (row.ExistingRequestMessageId is null)
         {
             return PublicationNotificationSuppressionReasons.RequestMissing;
         }
@@ -1295,8 +1322,10 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
         Guid NotificationId,
         string ServiceType,
         Guid MessageId,
-        Guid? ConsumerSessionId,
+        Guid? NotificationRequestMessageId,
+        Guid? ConsumerSubscriptionSessionId,
         Guid? ProviderRequestSessionId,
+        Guid? ConsumerRequestSessionId,
         string ListenerUrl,
         int AttemptCount,
         DateTime? NextAttemptUtc,
@@ -1308,7 +1337,7 @@ public sealed class SqlPublicationNotificationRepository : IPublicationNotificat
         string? RecipientState,
         DateTime? ExpiredUtc,
         DateTime? EffectiveExpiryUtc,
-        Guid? RequestMessageId,
+        Guid? ExistingRequestMessageId,
         DateTime? RequestExpiredUtc,
         DateTime? RequestEffectiveExpiryUtc,
         DateTime SqlUtcNow);

@@ -169,7 +169,7 @@ public sealed record PostResponseResult(
 public sealed class ProviderRequestSessionService : IProviderRequestSessionService
 {
     private readonly IChannelRepository _channelRepository;
-    private readonly ISubscriptionSessionRepository _sessionRepository;
+    private readonly IProviderRequestSessionRepository _sessionRepository;
     private readonly IConsumerRequestRepository _requestRepository;
     private readonly IRequestResponseRepository _responseRepository;
     private readonly ISubscriptionTransport _subscriptionTransport;
@@ -178,7 +178,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
 
     public ProviderRequestSessionService(
         IChannelRepository channelRepository,
-        ISubscriptionSessionRepository sessionRepository,
+        IProviderRequestSessionRepository sessionRepository,
         IConsumerRequestRepository requestRepository,
         IRequestResponseRepository responseRepository,
         ISubscriptionTransport subscriptionTransport,
@@ -263,8 +263,8 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
             return OpenProviderRequestSessionResult.Failure(OpenProviderRequestSessionFailureKind.OperationFault);
         }
 
-        InsertSubscriptionSessionResult insertResult = await _sessionRepository.InsertProviderRequestSessionAsync(
-            new ConsumerSubscriptionSessionCreateData(
+        InsertProviderRequestSessionResult insertResult = await _sessionRepository.InsertProviderRequestSessionAsync(
+            new ProviderRequestSessionCreateData(
                 sessionId,
                 channel.ChannelId,
                 channel.AzureTopicName,
@@ -303,20 +303,15 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
             return CloseProviderRequestSessionResult.Failure(CloseProviderRequestSessionFailureKind.ParameterFault);
         }
 
-        GetSubscriptionSessionResult sessionResult = await _sessionRepository.GetSubscriptionSessionAsync(parsedSessionId, cancellationToken);
+        GetProviderRequestSessionResult sessionResult = await _sessionRepository.GetProviderRequestSessionAsync(parsedSessionId, cancellationToken);
         if (!sessionResult.Succeeded || sessionResult.Session is null)
         {
-            return sessionResult.FailureKind == GetSubscriptionSessionFailureKind.NotFound
+            return sessionResult.FailureKind == GetProviderRequestSessionFailureKind.NotFound
                 ? CloseProviderRequestSessionResult.Failure(CloseProviderRequestSessionFailureKind.SessionFault)
                 : CloseProviderRequestSessionResult.Failure(CloseProviderRequestSessionFailureKind.OperationFault);
         }
 
-        ConsumerSubscriptionSessionData session = sessionResult.Session;
-        if (!string.Equals(session.SessionType, SubscriptionSessionTypes.ProviderRequestSubscription, StringComparison.Ordinal))
-        {
-            return CloseProviderRequestSessionResult.Failure(CloseProviderRequestSessionFailureKind.SessionFault);
-        }
-
+        ProviderRequestSessionData session = sessionResult.Session;
         if (!string.Equals(session.SessionState, SubscriptionSessionStates.Closed, StringComparison.Ordinal))
         {
             try
@@ -333,10 +328,10 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
             }
         }
 
-        CloseSubscriptionSessionResult closeResult = await _sessionRepository.CloseSubscriptionSessionAsync(parsedSessionId, cancellationToken);
+        CloseProviderRequestSessionRepositoryResult closeResult = await _sessionRepository.CloseProviderRequestSessionAsync(parsedSessionId, cancellationToken);
         return closeResult.Succeeded
             ? CloseProviderRequestSessionResult.Success()
-            : closeResult.FailureKind == Data.CloseSubscriptionSessionFailureKind.NotFound
+            : closeResult.FailureKind == CloseProviderRequestSessionRepositoryFailureKind.NotFound
                 ? CloseProviderRequestSessionResult.Failure(CloseProviderRequestSessionFailureKind.SessionFault)
                 : CloseProviderRequestSessionResult.Failure(CloseProviderRequestSessionFailureKind.OperationFault);
     }
@@ -354,7 +349,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
             };
         }
 
-        ConsumerSubscriptionSessionData session = sessionResult.Session;
+        ProviderRequestSessionData session = sessionResult.Session;
         try
         {
             TransportPublication? outstandingRequest = await _subscriptionTransport.GetOutstandingPublicationAsync(session.SessionId, cancellationToken);
@@ -425,7 +420,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
             };
         }
 
-        ConsumerSubscriptionSessionData session = sessionResult.Session;
+        ProviderRequestSessionData session = sessionResult.Session;
         try
         {
             await _subscriptionTransport.RemovePublicationAsync(
@@ -474,7 +469,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
             };
         }
 
-        ConsumerSubscriptionSessionData session = sessionResult.Session;
+        ProviderRequestSessionData session = sessionResult.Session;
         ValidateChannelCredentialsResult credentialsResult = await _channelRepository.ValidateChannelCredentialsAsync(
             session.ChannelId,
             session.AuthenticatedTokenUsername,
@@ -538,7 +533,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
         }
     }
 
-    private ReadRequestResult ToReadRequestResult(ConsumerSubscriptionSessionData session, TransportPublication request)
+    private ReadRequestResult ToReadRequestResult(ProviderRequestSessionData session, TransportPublication request)
     {
         if (!TryReadMessageContent(request, out string? messageContent))
         {
@@ -558,17 +553,16 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
             return GetOpenProviderRequestSessionResult.Failure(OpenProviderRequestSessionLookupFailureKind.ParameterFault);
         }
 
-        GetSubscriptionSessionResult sessionResult = await _sessionRepository.GetSubscriptionSessionAsync(parsedSessionId, cancellationToken);
+        GetProviderRequestSessionResult sessionResult = await _sessionRepository.GetProviderRequestSessionAsync(parsedSessionId, cancellationToken);
         if (!sessionResult.Succeeded || sessionResult.Session is null)
         {
-            return sessionResult.FailureKind == GetSubscriptionSessionFailureKind.NotFound
+            return sessionResult.FailureKind == GetProviderRequestSessionFailureKind.NotFound
                 ? GetOpenProviderRequestSessionResult.Failure(OpenProviderRequestSessionLookupFailureKind.SessionFault)
                 : GetOpenProviderRequestSessionResult.Failure(OpenProviderRequestSessionLookupFailureKind.OperationFault);
         }
 
-        ConsumerSubscriptionSessionData session = sessionResult.Session;
-        if (!string.Equals(session.SessionType, SubscriptionSessionTypes.ProviderRequestSubscription, StringComparison.Ordinal) ||
-            !string.Equals(session.SessionState, SubscriptionSessionStates.Open, StringComparison.Ordinal))
+        ProviderRequestSessionData session = sessionResult.Session;
+        if (!string.Equals(session.SessionState, SubscriptionSessionStates.Open, StringComparison.Ordinal))
         {
             return GetOpenProviderRequestSessionResult.Failure(OpenProviderRequestSessionLookupFailureKind.SessionFault);
         }
@@ -631,10 +625,10 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
 
     private sealed record GetOpenProviderRequestSessionResult(
         bool Succeeded,
-        ConsumerSubscriptionSessionData? Session,
+        ProviderRequestSessionData? Session,
         OpenProviderRequestSessionLookupFailureKind? FailureKind)
     {
-        public static GetOpenProviderRequestSessionResult Success(ConsumerSubscriptionSessionData session)
+        public static GetOpenProviderRequestSessionResult Success(ProviderRequestSessionData session)
         {
             return new GetOpenProviderRequestSessionResult(true, session, null);
         }

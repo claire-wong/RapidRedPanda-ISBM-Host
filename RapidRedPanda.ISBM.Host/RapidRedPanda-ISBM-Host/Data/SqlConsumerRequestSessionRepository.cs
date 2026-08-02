@@ -34,14 +34,16 @@ public sealed class SqlConsumerRequestSessionRepository : IConsumerRequestSessio
                     SessionId,
                     ChannelId,
                     SessionState,
-                    AuthenticatedTokenUsername
+                    AuthenticatedTokenUsername,
+                    ListenerUrl
                 )
                 values
                 (
                     @SessionId,
                     @ChannelId,
                     @SessionState,
-                    @AuthenticatedTokenUsername
+                    @AuthenticatedTokenUsername,
+                    @ListenerUrl
                 );
                 """;
 
@@ -51,6 +53,8 @@ public sealed class SqlConsumerRequestSessionRepository : IConsumerRequestSessio
             command.Parameters.Add("@SessionState", SqlDbType.NVarChar, 32).Value = ConsumerRequestSessionStates.Open;
             command.Parameters.Add("@AuthenticatedTokenUsername", SqlDbType.NVarChar, 256).Value =
                 (object?)session.AuthenticatedTokenUsername ?? DBNull.Value;
+            command.Parameters.Add("@ListenerUrl", SqlDbType.NVarChar, 2048).Value =
+                (object?)session.ListenerUrl ?? DBNull.Value;
 
             await command.ExecuteNonQueryAsync(cancellationToken);
             return InsertConsumerRequestSessionResult.Success();
@@ -80,7 +84,8 @@ public sealed class SqlConsumerRequestSessionRepository : IConsumerRequestSessio
                     SessionState,
                     AuthenticatedTokenUsername,
                     CreatedUtc,
-                    ClosedUtc
+                    ClosedUtc,
+                    ListenerUrl
                 from dbo.ConsumerRequestSessions
                 where SessionId = @SessionId;
                 """;
@@ -102,7 +107,8 @@ public sealed class SqlConsumerRequestSessionRepository : IConsumerRequestSessio
                 reader.GetString(2),
                 reader.IsDBNull(3) ? null : reader.GetString(3),
                 reader.GetDateTime(4),
-                reader.IsDBNull(5) ? null : reader.GetDateTime(5));
+                reader.IsDBNull(5) ? null : reader.GetDateTime(5),
+                reader.IsDBNull(6) ? null : reader.GetString(6));
 
             return GetConsumerRequestSessionResult.Success(session);
         }

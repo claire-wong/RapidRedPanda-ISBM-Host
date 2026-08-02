@@ -375,28 +375,32 @@ public sealed class SqlProviderPublicationRepository : IProviderPublicationRepos
         const string notificationSql = """
             declare @CreatedNotifications table
             (
-                PublicationNotificationId uniqueidentifier not null,
+                NotificationId uniqueidentifier not null,
                 ConsumerSessionId uniqueidentifier not null
             );
 
-            insert dbo.PublicationNotifications
+            insert dbo.Notifications
             (
-                PublicationNotificationId,
+                NotificationId,
                 NotificationServiceType,
                 MessageId,
-                ConsumerSessionId,
+                ConsumerSubscriptionSessionId,
+                ProviderRequestSessionId,
+                ConsumerRequestSessionId,
                 ListenerUrl,
                 State,
                 NextAttemptUtc,
                 DeliveryDeadlineUtc
             )
-            output inserted.PublicationNotificationId, inserted.ConsumerSessionId
-            into @CreatedNotifications (PublicationNotificationId, ConsumerSessionId)
+            output inserted.NotificationId, inserted.ConsumerSubscriptionSessionId
+            into @CreatedNotifications (NotificationId, ConsumerSessionId)
             select
                 newid(),
                 @PublicationServiceType,
                 @MessageId,
                 recipient.ConsumerSessionId,
+                null,
+                null,
                 session.ListenerUrl,
                 @PendingState,
                 @PublishedUtc,
@@ -410,20 +414,20 @@ public sealed class SqlProviderPublicationRepository : IProviderPublicationRepos
               and not exists
               (
                   select 1
-                  from dbo.PublicationNotifications existing
+                  from dbo.Notifications existing
                   where existing.MessageId = recipient.MessageId
-                    and existing.ConsumerSessionId = recipient.ConsumerSessionId
+                    and existing.ConsumerSubscriptionSessionId = recipient.ConsumerSessionId
                     and existing.NotificationServiceType = @PublicationServiceType
                );
 
-            insert dbo.PublicationNotificationTopics
+            insert dbo.NotificationTopics
             (
-                PublicationNotificationId,
+                NotificationId,
                 TopicOrdinal,
                 TopicValue
             )
             select
-                created.PublicationNotificationId,
+                created.NotificationId,
                 topic.TopicOrdinal,
                 topic.TopicValue
             from @CreatedNotifications created

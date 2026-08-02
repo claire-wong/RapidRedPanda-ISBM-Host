@@ -133,37 +133,38 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
 
             declare @CreatedNotifications table
             (
-                PublicationNotificationId uniqueidentifier not null,
+                NotificationId uniqueidentifier not null,
                 ProviderRequestSessionId uniqueidentifier not null
             );
 
-            insert dbo.PublicationNotifications
+            insert dbo.Notifications
             (
-                PublicationNotificationId,
+                NotificationId,
                 NotificationServiceType,
                 MessageId,
-                ConsumerSessionId,
+                ConsumerSubscriptionSessionId,
                 ProviderRequestSessionId,
+                ConsumerRequestSessionId,
                 ListenerUrl,
                 State,
                 NextAttemptUtc,
                 DeliveryDeadlineUtc
             )
-            output inserted.PublicationNotificationId, inserted.ProviderRequestSessionId
-            into @CreatedNotifications (PublicationNotificationId, ProviderRequestSessionId)
+            output inserted.NotificationId, inserted.ProviderRequestSessionId
+            into @CreatedNotifications (NotificationId, ProviderRequestSessionId)
             select
                 newid(),
                 @RequestServiceType,
                 @MessageId,
                 null,
                 session.SessionId,
+                null,
                 session.ListenerUrl,
                 @PendingState,
                 @SqlUtcNow,
                 @DeliveryDeadlineUtc
-            from dbo.ConsumerSubscriptionSessions session
+            from dbo.ProviderRequestSessions session
             where session.ChannelId = @ChannelId
-              and session.SessionType = @ProviderRequestSessionType
               and session.SessionState = @OpenSessionState
               and session.OpenedUtc <= @CreatedUtc
               and session.ListenerUrl is not null
@@ -172,29 +173,29 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
               and exists
               (
                   select 1
-                  from dbo.ConsumerSubscriptionSessionTopics sessionTopic
+                  from dbo.ProviderRequestSessionTopics sessionTopic
                   inner join dbo.ConsumerRequestTopics requestTopic
                           on requestTopic.TopicValue = sessionTopic.TopicValue
-                  where sessionTopic.SessionId = session.SessionId
+                  where sessionTopic.ProviderRequestSessionId = session.SessionId
                     and requestTopic.MessageId = @MessageId
               )
               and not exists
               (
                   select 1
-                  from dbo.PublicationNotifications existing with (updlock, holdlock)
+                  from dbo.Notifications existing with (updlock, holdlock)
                   where existing.MessageId = @MessageId
                     and existing.ProviderRequestSessionId = session.SessionId
                     and existing.NotificationServiceType = @RequestServiceType
               );
 
-            insert dbo.PublicationNotificationTopics
+            insert dbo.NotificationTopics
             (
-                PublicationNotificationId,
+                NotificationId,
                 TopicOrdinal,
                 TopicValue
             )
             select
-                created.PublicationNotificationId,
+                created.NotificationId,
                 topic.TopicOrdinal,
                 topic.TopicValue
             from @CreatedNotifications created
@@ -203,8 +204,8 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
               and not exists
               (
                   select 1
-                  from dbo.PublicationNotificationTopics existingTopic
-                  where existingTopic.PublicationNotificationId = created.PublicationNotificationId
+                  from dbo.NotificationTopics existingTopic
+                  where existingTopic.NotificationId = created.NotificationId
                     and existingTopic.TopicValue = topic.TopicValue
               );
             """;
@@ -217,7 +218,6 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
         command.Parameters.Add("@MaximumDeliveryAgeMinutes", SqlDbType.Int).Value = maximumDeliveryAgeMinutes;
         command.Parameters.Add("@RequestServiceType", SqlDbType.NVarChar, 32).Value = NotificationServiceTypes.Request;
         command.Parameters.Add("@PendingState", SqlDbType.NVarChar, 32).Value = PublicationNotificationStates.Pending;
-        command.Parameters.Add("@ProviderRequestSessionType", SqlDbType.NVarChar, 64).Value = SubscriptionSessionTypes.ProviderRequestSubscription;
         command.Parameters.Add("@OpenSessionState", SqlDbType.NVarChar, 32).Value = SubscriptionSessionStates.Open;
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -299,12 +299,11 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
                 (
                     select 1
                     from dbo.ConsumerRequests request
-                    inner join dbo.ConsumerSubscriptionSessions session
+                    inner join dbo.ProviderRequestSessions session
                             on session.ChannelId = request.ChannelId
                     where request.MessageId = @MessageId
                       and request.ExpiredUtc is not null
                       and session.SessionId = @ProviderSessionId
-                      and session.SessionType = @ProviderRequestSessionType
                 )
                 then cast(1 as bit) else cast(0 as bit) end;
                 """;
@@ -312,8 +311,6 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
             await using SqlCommand command = new(sql, connection);
             command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = messageId;
             command.Parameters.Add("@ProviderSessionId", SqlDbType.UniqueIdentifier).Value = providerSessionId;
-            command.Parameters.Add("@ProviderRequestSessionType", SqlDbType.NVarChar, 64).Value = SubscriptionSessionTypes.ProviderRequestSubscription;
-
             bool isExpired = (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
             return RequestExpirationStateResult.Success(isExpired);
         }

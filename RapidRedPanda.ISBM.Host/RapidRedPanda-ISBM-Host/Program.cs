@@ -12,6 +12,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddScoped<IChannelRepository, SqlChannelRepository>();
 builder.Services.AddScoped<ISubscriptionSessionRepository, SqlSubscriptionSessionRepository>();
+builder.Services.AddScoped<IProviderRequestSessionRepository, SqlProviderRequestSessionRepository>();
 builder.Services.AddScoped<IProviderPublicationSessionRepository, SqlProviderPublicationSessionRepository>();
 builder.Services.AddScoped<IProviderPublicationRepository, SqlProviderPublicationRepository>();
 builder.Services.AddScoped<IPublicationNotificationRepository, SqlPublicationNotificationRepository>();

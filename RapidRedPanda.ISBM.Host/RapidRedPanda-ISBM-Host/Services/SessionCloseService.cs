@@ -35,6 +35,7 @@ public sealed class SessionCloseService : ISessionCloseService
 {
     private readonly ISubscriptionSessionRepository _consumerSessionRepository;
     private readonly IProviderPublicationSessionRepository _providerSessionRepository;
+    private readonly IProviderRequestSessionRepository _providerRequestSessionRepository;
     private readonly IConsumerRequestSessionRepository _consumerRequestSessionRepository;
     private readonly IConsumerSubscriptionSessionService _consumerSessionService;
     private readonly IProviderPublicationSessionService _providerSessionService;
@@ -45,6 +46,7 @@ public sealed class SessionCloseService : ISessionCloseService
     public SessionCloseService(
         ISubscriptionSessionRepository consumerSessionRepository,
         IProviderPublicationSessionRepository providerSessionRepository,
+        IProviderRequestSessionRepository providerRequestSessionRepository,
         IConsumerRequestSessionRepository consumerRequestSessionRepository,
         IConsumerSubscriptionSessionService consumerSessionService,
         IProviderPublicationSessionService providerSessionService,
@@ -54,6 +56,7 @@ public sealed class SessionCloseService : ISessionCloseService
     {
         _consumerSessionRepository = consumerSessionRepository;
         _providerSessionRepository = providerSessionRepository;
+        _providerRequestSessionRepository = providerRequestSessionRepository;
         _consumerRequestSessionRepository = consumerRequestSessionRepository;
         _consumerSessionService = consumerSessionService;
         _providerSessionService = providerSessionService;
@@ -71,6 +74,7 @@ public sealed class SessionCloseService : ISessionCloseService
         : this(
             consumerSessionRepository,
             providerSessionRepository,
+            new NullProviderRequestSessionRepository(),
             new NullConsumerRequestSessionRepository(),
             consumerSessionService,
             providerSessionService,
@@ -107,6 +111,15 @@ public sealed class SessionCloseService : ISessionCloseService
             return CloseSessionResult.Failure(CloseSessionFailureKind.OperationFault);
         }
 
+        GetProviderRequestSessionResult providerRequestResult = await _providerRequestSessionRepository.GetProviderRequestSessionAsync(
+            parsedSessionId,
+            cancellationToken);
+        if (!providerRequestResult.Succeeded &&
+            providerRequestResult.FailureKind != GetProviderRequestSessionFailureKind.NotFound)
+        {
+            return CloseSessionResult.Failure(CloseSessionFailureKind.OperationFault);
+        }
+
         GetConsumerRequestSessionResult consumerRequestResult = await _consumerRequestSessionRepository.GetConsumerRequestSessionAsync(
             parsedSessionId,
             cancellationToken);
@@ -120,8 +133,7 @@ public sealed class SessionCloseService : ISessionCloseService
             string.Equals(consumerSession.SessionType, SubscriptionSessionTypes.ConsumerPublicationSubscription, StringComparison.Ordinal) &&
             string.Equals(consumerSession.SessionState, SubscriptionSessionStates.Open, StringComparison.Ordinal);
 
-        bool hasActiveProviderRequestSession = consumerResult.Session is ConsumerSubscriptionSessionData providerRequestSession &&
-            string.Equals(providerRequestSession.SessionType, SubscriptionSessionTypes.ProviderRequestSubscription, StringComparison.Ordinal) &&
+        bool hasActiveProviderRequestSession = providerRequestResult.Session is ProviderRequestSessionData providerRequestSession &&
             string.Equals(providerRequestSession.SessionState, SubscriptionSessionStates.Open, StringComparison.Ordinal);
 
         bool hasActiveProviderSession = providerResult.Session is ProviderPublicationSessionData providerSession &&
@@ -269,6 +281,32 @@ public sealed class SessionCloseService : ISessionCloseService
         }
     }
 
+    private sealed class NullProviderRequestSessionRepository : IProviderRequestSessionRepository
+    {
+        public Task<InsertProviderRequestSessionResult> InsertProviderRequestSessionAsync(
+            ProviderRequestSessionCreateData session,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(InsertProviderRequestSessionResult.Success());
+        }
+
+        public Task<GetProviderRequestSessionResult> GetProviderRequestSessionAsync(
+            Guid sessionId,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(GetProviderRequestSessionResult.Failure(
+                GetProviderRequestSessionFailureKind.NotFound,
+                "missing"));
+        }
+
+        public Task<CloseProviderRequestSessionRepositoryResult> CloseProviderRequestSessionAsync(
+            Guid sessionId,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(CloseProviderRequestSessionRepositoryResult.Success());
+        }
+    }
+
     private sealed class NullProviderRequestSessionService : IProviderRequestSessionService
     {
         public Task<OpenProviderRequestSessionResult> OpenProviderRequestSessionAsync(
@@ -314,6 +352,7 @@ public sealed class SessionCloseService : ISessionCloseService
     {
         public Task<OpenConsumerRequestSessionResult> OpenConsumerRequestSessionAsync(
             string channelId,
+            string? listenerUrl,
             ChannelCredentials? credentials,
             CancellationToken cancellationToken)
         {

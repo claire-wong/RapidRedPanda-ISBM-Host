@@ -14,7 +14,7 @@ internal static class SqlRequestNotificationSuppression
         CancellationToken cancellationToken)
     {
         const string sql = """
-            update dbo.PublicationNotifications
+            update dbo.Notifications
                set State = @SuppressedState,
                    ResolvedUtc = @SuppressedUtc,
                    ResolutionReason = @ResolutionReason,
@@ -46,7 +46,7 @@ internal static class SqlRequestNotificationSuppression
         CancellationToken cancellationToken)
     {
         const string sql = """
-            update dbo.PublicationNotifications
+            update dbo.Notifications
                set State = @SuppressedState,
                    ResolvedUtc = @SuppressedUtc,
                    ResolutionReason = @ResolutionReason,

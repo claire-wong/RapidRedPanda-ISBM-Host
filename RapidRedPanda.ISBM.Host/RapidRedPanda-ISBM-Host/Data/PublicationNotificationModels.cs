@@ -15,6 +15,7 @@ public static class NotificationServiceTypes
 {
     public const string Publication = "Publication";
     public const string Request = "Request";
+    public const string Response = "Response";
 }
 
 public static class PublicationNotificationSuppressionReasons
@@ -35,8 +36,10 @@ public sealed record PublicationNotificationData(
     Guid PublicationNotificationId,
     string ServiceType,
     Guid MessageId,
+    Guid? RequestMessageId,
     Guid? ConsumerSessionId,
     Guid? ProviderRequestSessionId,
+    Guid? ConsumerRequestSessionId,
     string ListenerUrl,
     IReadOnlyList<string> Topics,
     string State,
@@ -50,8 +53,10 @@ public sealed record ClaimedPublicationNotification(
     Guid NotificationId,
     string ServiceType,
     Guid MessageId,
+    Guid? RequestMessageId,
     Guid? ConsumerSessionId,
     Guid? ProviderRequestSessionId,
+    Guid? ConsumerRequestSessionId,
     string ListenerUrl,
     IReadOnlyList<string> Topics,
     int AttemptCount,
