@@ -1,3 +1,4 @@
+using RapidRedPanda.ISBM.Host.Messaging;
 using System.Text.Json;
 
 namespace RapidRedPanda.ISBM.Host.Validation;
@@ -30,48 +31,23 @@ internal static class MessageContentSemanticsValidator
 {
     public static MessageContentValidationResult Validate(JsonElement messageContent)
     {
-        if (messageContent.ValueKind is not JsonValueKind.Object ||
-            !messageContent.TryGetProperty("content", out JsonElement content))
+        if (!RestMessageContentMapper.TryFromRest(messageContent, out InternalMessageContent? content))
         {
             return MessageContentValidationResult.Invalid;
         }
 
-        if (!TryReadOptionalString(messageContent, "mediaType", out string? mediaType) ||
-            !TryReadOptionalString(messageContent, "contentEncoding", out string? contentEncoding))
+        return content!.Kind switch
         {
-            return MessageContentValidationResult.Invalid;
-        }
-
-        return content.ValueKind switch
-        {
-            JsonValueKind.Object when mediaType is null && contentEncoding is null =>
+            InternalMessageContentKind.Json =>
                 MessageContentValidationResult.Valid(MessageContentKind.Json, null),
 
-            JsonValueKind.String when mediaType is not null && contentEncoding is null =>
-                MessageContentValidationResult.Valid(MessageContentKind.String, mediaType),
+            InternalMessageContentKind.String =>
+                MessageContentValidationResult.Valid(MessageContentKind.String, content.MediaType),
 
-            JsonValueKind.String when contentEncoding is not null =>
-                MessageContentValidationResult.Invalid,
+            InternalMessageContentKind.Binary =>
+                MessageContentValidationResult.Valid(MessageContentKind.Encoded, content.MediaType, content.ContentEncoding),
 
             _ => MessageContentValidationResult.Invalid
         };
-    }
-
-    private static bool TryReadOptionalString(JsonElement source, string propertyName, out string? value)
-    {
-        value = null;
-        if (!source.TryGetProperty(propertyName, out JsonElement property) ||
-            property.ValueKind is JsonValueKind.Null)
-        {
-            return true;
-        }
-
-        if (property.ValueKind is not JsonValueKind.String)
-        {
-            return false;
-        }
-
-        value = property.GetString();
-        return !string.IsNullOrWhiteSpace(value);
     }
 }

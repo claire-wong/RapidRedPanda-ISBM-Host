@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using RapidRedPanda.ISBM.Host.Contracts;
 using RapidRedPanda.ISBM.Host.Controllers;
 using RapidRedPanda.ISBM.Host.Data;
+using RapidRedPanda.ISBM.Host.Messaging;
 using RapidRedPanda.ISBM.Host.Services;
 using System.Text;
 
@@ -29,8 +30,9 @@ public sealed class MessageContentSemanticsControllerTests
 
         ObjectResult created = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status201Created, created.StatusCode);
-        Assert.Null(service.PostedMediaType);
-        Assert.Equal("""{"content":{"speed":1200}}""", service.PostedMessageContent?.ToString());
+        Assert.Equal(InternalMessageContentKind.Json, service.PostedMessageContent?.Kind);
+        Assert.Null(service.PostedMessageContent?.MediaType);
+        Assert.Equal("""{"speed":1200}""", service.PostedMessageContent?.Payload.ToString());
     }
 
     [Theory]
@@ -64,7 +66,8 @@ public sealed class MessageContentSemanticsControllerTests
 
         ObjectResult created = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status201Created, created.StatusCode);
-        Assert.Equal(expectedMediaType, service.PostedMediaType);
+        Assert.Equal(InternalMessageContentKind.String, service.PostedMessageContent?.Kind);
+        Assert.Equal(expectedMediaType, service.PostedMessageContent?.MediaType);
     }
 
     [Theory]
@@ -102,8 +105,9 @@ public sealed class MessageContentSemanticsControllerTests
 
         ObjectResult created = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status201Created, created.StatusCode);
-        Assert.Null(service.PostedMediaType);
-        Assert.Equal("""{"content":{"speed":1200}}""", service.PostedMessageContent?.ToString());
+        Assert.Equal(InternalMessageContentKind.Json, service.PostedMessageContent?.Kind);
+        Assert.Null(service.PostedMessageContent?.MediaType);
+        Assert.Equal("""{"speed":1200}""", service.PostedMessageContent?.Payload.ToString());
     }
 
     [Theory]
@@ -137,7 +141,8 @@ public sealed class MessageContentSemanticsControllerTests
 
         ObjectResult created = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status201Created, created.StatusCode);
-        Assert.Equal(expectedMediaType, service.PostedMediaType);
+        Assert.Equal(InternalMessageContentKind.String, service.PostedMessageContent?.Kind);
+        Assert.Equal(expectedMediaType, service.PostedMessageContent?.MediaType);
     }
 
     [Fact]
@@ -172,8 +177,9 @@ public sealed class MessageContentSemanticsControllerTests
 
         ObjectResult created = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status201Created, created.StatusCode);
-        Assert.Null(service.PostedMediaType);
-        Assert.Equal("""{"content":{"accepted":true}}""", service.PostedMessageContent?.ToString());
+        Assert.Equal(InternalMessageContentKind.Json, service.PostedMessageContent?.Kind);
+        Assert.Null(service.PostedMessageContent?.MediaType);
+        Assert.Equal("""{"accepted":true}""", service.PostedMessageContent?.Payload.ToString());
     }
 
     [Theory]
@@ -207,7 +213,8 @@ public sealed class MessageContentSemanticsControllerTests
 
         ObjectResult created = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status201Created, created.StatusCode);
-        Assert.Equal(expectedMediaType, service.PostedMediaType);
+        Assert.Equal(InternalMessageContentKind.String, service.PostedMessageContent?.Kind);
+        Assert.Equal(expectedMediaType, service.PostedMessageContent?.MediaType);
     }
 
     [Theory]
@@ -270,8 +277,7 @@ public sealed class MessageContentSemanticsControllerTests
 
     private sealed class PublicationService : IProviderPublicationSessionService
     {
-        public BinaryData? PostedMessageContent { get; private set; }
-        public string? PostedMediaType { get; private set; }
+        public InternalMessageContent? PostedMessageContent { get; private set; }
 
         public Task<OpenPublicationSessionResult> OpenPublicationSessionAsync(
             string channelId,
@@ -291,21 +297,18 @@ public sealed class MessageContentSemanticsControllerTests
         public Task<PostPublicationResult> PostPublicationAsync(
             string sessionId,
             IReadOnlyList<string?>? topics,
-            BinaryData messageContent,
-            string? mediaType,
+            InternalMessageContent messageContent,
             string? expiry,
             CancellationToken cancellationToken)
         {
             PostedMessageContent = messageContent;
-            PostedMediaType = mediaType;
             return Task.FromResult(PostPublicationResult.Success(Guid.NewGuid()));
         }
     }
 
     private sealed class ConsumerRequestService : IConsumerRequestSessionService
     {
-        public BinaryData? PostedMessageContent { get; private set; }
-        public string? PostedMediaType { get; private set; }
+        public InternalMessageContent? PostedMessageContent { get; private set; }
 
         public Task<OpenConsumerRequestSessionResult> OpenConsumerRequestSessionAsync(
             string channelId,
@@ -325,13 +328,11 @@ public sealed class MessageContentSemanticsControllerTests
         public Task<PostRequestResult> PostRequestAsync(
             string sessionId,
             IReadOnlyList<string?>? topics,
-            BinaryData messageContent,
-            string? mediaType,
+            InternalMessageContent messageContent,
             string? expiry,
             CancellationToken cancellationToken)
         {
             PostedMessageContent = messageContent;
-            PostedMediaType = mediaType;
             return Task.FromResult(PostRequestResult.Success(Guid.NewGuid()));
         }
 
@@ -365,8 +366,7 @@ public sealed class MessageContentSemanticsControllerTests
 
     private sealed class ProviderRequestService : IProviderRequestSessionService
     {
-        public BinaryData? PostedMessageContent { get; private set; }
-        public string? PostedMediaType { get; private set; }
+        public InternalMessageContent? PostedMessageContent { get; private set; }
 
         public Task<OpenProviderRequestSessionResult> OpenProviderRequestSessionAsync(
             string channelId,
@@ -397,13 +397,11 @@ public sealed class MessageContentSemanticsControllerTests
         public Task<PostResponseResult> PostResponseAsync(
             string sessionId,
             string requestMessageId,
-            BinaryData messageContent,
-            string? mediaType,
+            InternalMessageContent messageContent,
             ChannelCredentials? credentials,
             CancellationToken cancellationToken)
         {
             PostedMessageContent = messageContent;
-            PostedMediaType = mediaType;
             return Task.FromResult(PostResponseResult.Success(Guid.NewGuid()));
         }
     }

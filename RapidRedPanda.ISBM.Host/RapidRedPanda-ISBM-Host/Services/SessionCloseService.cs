@@ -1,4 +1,5 @@
 using RapidRedPanda.ISBM.Host.Data;
+using RapidRedPanda.ISBM.Host.Messaging;
 
 namespace RapidRedPanda.ISBM.Host.Services;
 
@@ -300,8 +301,7 @@ public sealed class SessionCloseService : ISessionCloseService
         public Task<PostResponseResult> PostResponseAsync(
             string sessionId,
             string requestMessageId,
-            BinaryData messageContent,
-            string? mediaType,
+            InternalMessageContent messageContent,
             ChannelCredentials? credentials,
             CancellationToken cancellationToken)
         {
@@ -329,8 +329,7 @@ public sealed class SessionCloseService : ISessionCloseService
         public Task<PostRequestResult> PostRequestAsync(
             string sessionId,
             IReadOnlyList<string?>? topics,
-            BinaryData messageContent,
-            string? mediaType,
+            InternalMessageContent messageContent,
             string? expiry,
             CancellationToken cancellationToken)
         {

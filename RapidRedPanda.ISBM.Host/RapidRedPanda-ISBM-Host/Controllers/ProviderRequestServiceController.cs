@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using RapidRedPanda.ISBM.Host.Contracts;
 using RapidRedPanda.ISBM.Host.Data;
+using RapidRedPanda.ISBM.Host.Messaging;
 using RapidRedPanda.ISBM.Host.Services;
 using RapidRedPanda.ISBM.Host.Validation;
 using System.Net.Http.Headers;
@@ -105,17 +106,7 @@ public sealed class ProviderRequestServiceController : Controller
 
         if (result.Succeeded && result.Request is ReadRequestData request)
         {
-            JsonElement messageContent;
-            try
-            {
-                using JsonDocument messageContentDocument = JsonDocument.Parse(request.MessageContent);
-                messageContent = messageContentDocument.RootElement.Clone();
-            }
-            catch (JsonException exception)
-            {
-                _logger.LogError(exception, "Stored request message content was not valid JSON.");
-                return StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"));
-            }
+            JsonElement messageContent = RestMessageContentMapper.ToRestJsonElement(request.MessageContent);
 
             return Ok(new ReadRequestResponse(request.MessageId, messageContent, request.Topics));
         }
@@ -182,8 +173,7 @@ public sealed class ProviderRequestServiceController : Controller
             return BadRequest(new FaultResponse("ParameterFault"));
         }
 
-        MessageContentValidationResult messageContentValidation = MessageContentSemanticsValidator.Validate(request.MessageContent);
-        if (!messageContentValidation.Succeeded)
+        if (!RestMessageContentMapper.TryFromRest(request.MessageContent, out InternalMessageContent? messageContent))
         {
             return BadRequest(new FaultResponse("ParameterFault"));
         }
@@ -194,8 +184,7 @@ public sealed class ProviderRequestServiceController : Controller
             result = await _requestSessionService.PostResponseAsync(
                 sessionId,
                 requestMessageId,
-                BinaryData.FromString(request.MessageContent.GetRawText()),
-                messageContentValidation.PayloadMediaType,
+                messageContent!,
                 TryReadBasicCredentials(),
                 cancellationToken);
         }

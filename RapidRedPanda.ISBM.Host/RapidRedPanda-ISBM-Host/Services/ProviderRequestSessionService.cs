@@ -1,7 +1,7 @@
 using Azure;
 using RapidRedPanda.ISBM.Host.Data;
+using RapidRedPanda.ISBM.Host.Messaging;
 using RapidRedPanda.ISBM.Host.Validation;
-using System.Text.Json;
 
 namespace RapidRedPanda.ISBM.Host.Services;
 
@@ -28,8 +28,7 @@ public interface IProviderRequestSessionService
     Task<PostResponseResult> PostResponseAsync(
         string sessionId,
         string requestMessageId,
-        BinaryData messageContent,
-        string? mediaType,
+        InternalMessageContent messageContent,
         ChannelCredentials? credentials,
         CancellationToken cancellationToken);
 }
@@ -90,7 +89,7 @@ public enum ReadRequestFailureKind
 public sealed record ReadRequestData(
     Guid MessageId,
     IReadOnlyList<string> Topics,
-    string MessageContent);
+    InternalMessageContent MessageContent);
 
 public sealed record ReadRequestResult(
     bool Succeeded,
@@ -443,14 +442,12 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
     public async Task<PostResponseResult> PostResponseAsync(
         string sessionId,
         string requestMessageId,
-        BinaryData messageContent,
-        string? mediaType,
+        InternalMessageContent messageContent,
         ChannelCredentials? credentials,
         CancellationToken cancellationToken)
     {
         if (!Guid.TryParse(requestMessageId, out Guid parsedRequestMessageId) ||
-            string.IsNullOrWhiteSpace(messageContent.ToString()) ||
-            !TryValidateMediaType(mediaType))
+            messageContent is null)
         {
             return PostResponseResult.Failure(PostResponseFailureKind.ParameterFault);
         }
@@ -494,6 +491,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
         }
 
         Guid responseMessageId = Guid.NewGuid();
+        SqlMessageContent sqlMessageContent = SqlMessageContentAdapter.ToSql(messageContent);
         RequestResponseRepositoryResult insertResult = await _responseRepository.InsertResponseAsync(
             new RequestResponseCreateData(
                 responseMessageId,
@@ -501,8 +499,8 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
                 consumerRequestSessionId,
                 session.SessionId,
                 session.ChannelId,
-                messageContent.ToString(),
-                mediaType,
+                sqlMessageContent.MessageContent,
+                sqlMessageContent.MediaType,
                 DateTime.UtcNow),
             cancellationToken);
 
@@ -532,7 +530,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
 
     private ReadRequestResult ToReadRequestResult(ConsumerSubscriptionSessionData session, TransportPublication request)
     {
-        if (!TryReadMessageContent(request, out string? messageContent))
+        if (!BrokerMessageContentAdapter.TryReadMessageContent(request, out InternalMessageContent? messageContent))
         {
             _logger.LogError("Request broker message body did not contain a valid messageContent envelope. SessionId: {SessionId}. MessageId: {MessageId}.", session.SessionId, request.PublicationId);
             return ReadRequestResult.Failure(ReadRequestFailureKind.OperationFault);
@@ -568,32 +566,6 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
         return GetOpenProviderRequestSessionResult.Success(session);
     }
 
-    private static bool TryReadMessageContent(TransportPublication request, out string? messageContent)
-    {
-        messageContent = null;
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(request.Content);
-            JsonElement root = document.RootElement;
-            if (root.ValueKind is JsonValueKind.Object &&
-                root.TryGetProperty("messageId", out JsonElement messageIdElement) &&
-                messageIdElement.ValueKind is JsonValueKind.String &&
-                Guid.TryParse(messageIdElement.GetString(), out Guid bodyMessageId) &&
-                bodyMessageId == request.PublicationId &&
-                root.TryGetProperty("messageContent", out JsonElement messageContentElement))
-            {
-                messageContent = messageContentElement.GetRawText();
-                return true;
-            }
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-
-        return false;
-    }
-
     private static bool TryDecodeAndValidateChannelUri(string channelId, out string decodedChannelUri)
     {
         try
@@ -607,11 +579,6 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
         }
 
         return ChannelValidationRules.IsValidChannelUri(decodedChannelUri);
-    }
-
-    private static bool TryValidateMediaType(string? mediaType)
-    {
-        return mediaType is null || !string.IsNullOrWhiteSpace(mediaType);
     }
 
     private enum OpenProviderRequestSessionLookupFailureKind

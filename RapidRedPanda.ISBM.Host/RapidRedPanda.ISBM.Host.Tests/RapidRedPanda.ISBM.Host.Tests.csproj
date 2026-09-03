@@ -21,6 +21,10 @@
 
   <ItemGroup>
     <Compile Include="Usings.cs" />
+    <Compile Include="InternalMessageContentTests.cs" />
+    <Compile Include="RestMessageContentMapperTests.cs" />
+    <Compile Include="BrokerMessageContentAdapterTests.cs" />
+    <Compile Include="SqlMessageContentAdapterTests.cs" />
     <Compile Include="MessageContentSemanticsControllerTests.cs" />
     <Compile Include="ProviderConsumerPublicationRoundTripTests.cs" />
     <Compile Include="ProviderPublicationServiceControllerTests.cs" />

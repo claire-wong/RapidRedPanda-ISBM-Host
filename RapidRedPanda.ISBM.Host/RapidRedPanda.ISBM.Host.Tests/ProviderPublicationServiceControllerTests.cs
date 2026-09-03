@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using RapidRedPanda.ISBM.Host.Contracts;
 using RapidRedPanda.ISBM.Host.Controllers;
 using RapidRedPanda.ISBM.Host.Data;
+using RapidRedPanda.ISBM.Host.Messaging;
 using RapidRedPanda.ISBM.Host.Services;
 using System.Reflection;
 using System.Text;
@@ -146,8 +147,9 @@ public sealed class ProviderPublicationServiceControllerTests
         Assert.Equal(publicationId, response.MessageId);
         Assert.Equal(sessionId.ToString(), service.PostedSessionId);
         Assert.Equal(["Topic-A", "Topic-B"], service.PostedTopics);
-        Assert.Equal("""{ "content": { "reading": 42 } }""", service.PostedMessageContent?.ToString());
-        Assert.Null(service.PostedMediaType);
+        Assert.Equal(InternalMessageContentKind.Json, service.PostedMessageContent?.Kind);
+        Assert.Equal("""{ "reading": 42 }""", service.PostedMessageContent?.Payload.ToString());
+        Assert.Null(service.PostedMessageContent?.MediaType);
         Assert.Equal("PT1H", service.PostedExpiry);
     }
 
@@ -293,8 +295,7 @@ public sealed class ProviderPublicationServiceControllerTests
         public PostPublicationResult PostResult { get; init; } = PostPublicationResult.Success(Guid.NewGuid());
         public string? PostedSessionId { get; private set; }
         public IReadOnlyList<string?>? PostedTopics { get; private set; }
-        public BinaryData? PostedMessageContent { get; private set; }
-        public string? PostedMediaType { get; private set; }
+        public InternalMessageContent? PostedMessageContent { get; private set; }
         public string? PostedExpiry { get; private set; }
 
         public Task<OpenPublicationSessionResult> OpenPublicationSessionAsync(
@@ -315,15 +316,13 @@ public sealed class ProviderPublicationServiceControllerTests
         public Task<PostPublicationResult> PostPublicationAsync(
             string sessionId,
             IReadOnlyList<string?>? topics,
-            BinaryData messageContent,
-            string? mediaType,
+            InternalMessageContent messageContent,
             string? expiry,
             CancellationToken cancellationToken)
         {
             PostedSessionId = sessionId;
             PostedTopics = topics;
             PostedMessageContent = messageContent;
-            PostedMediaType = mediaType;
             PostedExpiry = expiry;
             return Task.FromResult(PostResult);
         }

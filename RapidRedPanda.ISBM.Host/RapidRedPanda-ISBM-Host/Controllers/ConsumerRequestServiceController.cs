@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using RapidRedPanda.ISBM.Host.Contracts;
 using RapidRedPanda.ISBM.Host.Data;
+using RapidRedPanda.ISBM.Host.Messaging;
 using RapidRedPanda.ISBM.Host.Services;
 using RapidRedPanda.ISBM.Host.Validation;
 using System.Net.Http.Headers;
@@ -89,8 +90,7 @@ public sealed class ConsumerRequestServiceController : Controller
             return BadRequest(new FaultResponse("ParameterFault"));
         }
 
-        MessageContentValidationResult messageContentValidation = MessageContentSemanticsValidator.Validate(request.MessageContent);
-        if (!messageContentValidation.Succeeded)
+        if (!RestMessageContentMapper.TryFromRest(request.MessageContent, out InternalMessageContent? messageContent))
         {
             return BadRequest(new FaultResponse("ParameterFault"));
         }
@@ -101,8 +101,7 @@ public sealed class ConsumerRequestServiceController : Controller
             result = await _requestSessionService.PostRequestAsync(
                 sessionId,
                 request.Topics,
-                BinaryData.FromString(request.MessageContent.GetRawText()),
-                messageContentValidation.PayloadMediaType,
+                messageContent!,
                 request.Expiry,
                 cancellationToken);
         }
@@ -182,17 +181,7 @@ public sealed class ConsumerRequestServiceController : Controller
 
         if (result.Succeeded && result.Response is ReadResponseData response)
         {
-            JsonElement messageContent;
-            try
-            {
-                using JsonDocument messageContentDocument = JsonDocument.Parse(response.MessageContent);
-                messageContent = messageContentDocument.RootElement.Clone();
-            }
-            catch (JsonException exception)
-            {
-                _logger.LogError(exception, "Stored response message content was not valid JSON.");
-                return StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"));
-            }
+            JsonElement messageContent = RestMessageContentMapper.ToRestJsonElement(response.MessageContent);
 
             return Ok(new ReadResponseResponse(response.RequestMessageId, response.MessageId, messageContent));
         }

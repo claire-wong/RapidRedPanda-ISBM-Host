@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using RapidRedPanda.ISBM.Host.Contracts;
 using RapidRedPanda.ISBM.Host.Data;
+using RapidRedPanda.ISBM.Host.Messaging;
 using RapidRedPanda.ISBM.Host.Services;
 using RapidRedPanda.ISBM.Host.Validation;
 using System.Net.Http.Headers;
@@ -89,8 +90,7 @@ public sealed class ProviderPublicationServiceController : Controller
             return BadRequest(new FaultResponse("ParameterFault"));
         }
 
-        MessageContentValidationResult messageContentValidation = MessageContentSemanticsValidator.Validate(request.MessageContent);
-        if (!messageContentValidation.Succeeded)
+        if (!RestMessageContentMapper.TryFromRest(request.MessageContent, out InternalMessageContent? messageContent))
         {
             return BadRequest(new FaultResponse("ParameterFault"));
         }
@@ -101,8 +101,7 @@ public sealed class ProviderPublicationServiceController : Controller
             result = await _publicationSessionService.PostPublicationAsync(
                 sessionId,
                 request.Topics,
-                BinaryData.FromString(request.MessageContent.GetRawText()),
-                messageContentValidation.PayloadMediaType,
+                messageContent!,
                 request.Expiry,
                 cancellationToken);
         }

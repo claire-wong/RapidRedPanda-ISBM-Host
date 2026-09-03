@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using RapidRedPanda.ISBM.Host.Contracts;
 using RapidRedPanda.ISBM.Host.Data;
+using RapidRedPanda.ISBM.Host.Messaging;
 using RapidRedPanda.ISBM.Host.Services;
 using System.Net.Http.Headers;
 using System.Text;
@@ -104,17 +105,7 @@ public sealed class ConsumerPublicationServiceController : Controller
 
         if (result.Succeeded && result.Publication is ReadPublicationData publication)
         {
-            JsonElement messageContent;
-            try
-            {
-                using JsonDocument messageContentDocument = JsonDocument.Parse(publication.MessageContent);
-                messageContent = messageContentDocument.RootElement.Clone();
-            }
-            catch (JsonException exception)
-            {
-                _logger.LogError(exception, "Stored publication message content was not valid JSON.");
-                return StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"));
-            }
+            JsonElement messageContent = RestMessageContentMapper.ToRestJsonElement(publication.MessageContent);
 
             return Ok(new ReadPublicationResponse(
                 publication.MessageId,

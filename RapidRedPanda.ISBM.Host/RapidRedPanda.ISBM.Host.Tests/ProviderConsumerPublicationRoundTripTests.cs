@@ -1,7 +1,9 @@
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Logging.Abstractions;
 using RapidRedPanda.ISBM.Host.Data;
+using RapidRedPanda.ISBM.Host.Messaging;
 using RapidRedPanda.ISBM.Host.Services;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace RapidRedPanda.ISBM.Host.Tests;
@@ -74,8 +76,7 @@ public sealed class ProviderConsumerPublicationRoundTripTests
         PostPublicationResult postResult = await providerService.PostPublicationAsync(
             openResult.SessionId!.Value.ToString(),
             ["Topic-A"],
-            BinaryData.FromString(messageContent),
-            payloadMediaType,
+            ToInternalMessageContent(messageContent),
             null,
             CancellationToken.None);
 
@@ -100,8 +101,16 @@ public sealed class ProviderConsumerPublicationRoundTripTests
         Assert.Equal(postResult.PublicationId, readResult.Publication.MessageId);
         Assert.Equal(["Topic-A"], readResult.Publication.Topics);
         Assert.Equal(payloadMediaType, sentMessage.ContentType);
-        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(messageContent), JsonNode.Parse(readResult.Publication.MessageContent)));
-        Assert.DoesNotContain("expiry", readResult.Publication.MessageContent, StringComparison.Ordinal);
+        string restMessageContent = RestMessageContentMapper.ToRestJsonString(readResult.Publication.MessageContent);
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(messageContent), JsonNode.Parse(restMessageContent)));
+        Assert.DoesNotContain("expiry", restMessageContent, StringComparison.Ordinal);
+    }
+
+    private static InternalMessageContent ToInternalMessageContent(string messageContent)
+    {
+        using JsonDocument document = JsonDocument.Parse(messageContent);
+        Assert.True(RestMessageContentMapper.TryFromRest(document.RootElement, out InternalMessageContent? internalMessageContent));
+        return internalMessageContent!;
     }
 
     private sealed class FakeChannelRepository(Guid channelId, string azureTopicName) : IChannelRepository
