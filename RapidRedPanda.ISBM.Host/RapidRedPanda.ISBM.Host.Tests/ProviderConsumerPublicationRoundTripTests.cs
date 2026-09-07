@@ -47,6 +47,17 @@ public sealed class ProviderConsumerPublicationRoundTripTests
             """,
             "text/plain"
         ];
+        yield return
+        [
+            """
+            {
+              "mediaType": "application/octet-stream",
+              "contentEncoding": "base64",
+              "content": "AAECAwQ="
+            }
+            """,
+            "application/octet-stream"
+        ];
     }
 
     [Theory]
@@ -103,6 +114,11 @@ public sealed class ProviderConsumerPublicationRoundTripTests
         Assert.Equal(payloadMediaType, sentMessage.ContentType);
         string restMessageContent = RestMessageContentMapper.ToRestJsonString(readResult.Publication.MessageContent);
         Assert.True(JsonNode.DeepEquals(JsonNode.Parse(messageContent), JsonNode.Parse(restMessageContent)));
+        if (readResult.Publication.MessageContent.Kind is InternalMessageContentKind.Binary)
+        {
+            Assert.Equal([0, 1, 2, 3, 4], readResult.Publication.MessageContent.Payload.ToArray());
+        }
+
         Assert.DoesNotContain("expiry", restMessageContent, StringComparison.Ordinal);
     }
 

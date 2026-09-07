@@ -15,6 +15,7 @@ public sealed class MessageContentSemanticsControllerTests
     private const string NativeJsonEnvelope = """{"messageContent":{"content":{"speed":1200}},"topics":["Topic-A"]}""";
     private const string XmlStringEnvelope = """{"messageContent":{"mediaType":"application/xml","content":"<speed>1200</speed>"},"topics":["Topic-A"]}""";
     private const string TextStringEnvelope = """{"messageContent":{"mediaType":"text/plain","content":"speed=1200"},"topics":["Topic-A"]}""";
+    private const string BinaryEnvelope = """{"messageContent":{"mediaType":"application/octet-stream","contentEncoding":"base64","content":"AAECAwQ="},"topics":["Topic-A"]}""";
 
     [Theory]
     [InlineData("application/json")]
@@ -70,12 +71,31 @@ public sealed class MessageContentSemanticsControllerTests
         Assert.Equal(expectedMediaType, service.PostedMessageContent?.MediaType);
     }
 
+    [Fact]
+    public async Task PostPublication_BinaryContent_DelegatesDecodedPayloadAndPayloadMediaType()
+    {
+        PublicationService service = new();
+        ProviderPublicationServiceController controller = CreatePublicationController(service);
+        SetBody(controller, BinaryEnvelope, "application/json");
+
+        IActionResult result = await controller.PostPublication(Guid.NewGuid().ToString(), CancellationToken.None);
+
+        ObjectResult created = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status201Created, created.StatusCode);
+        Assert.Equal(InternalMessageContentKind.Binary, service.PostedMessageContent?.Kind);
+        Assert.Equal("application/octet-stream", service.PostedMessageContent?.MediaType);
+        Assert.Equal("base64", service.PostedMessageContent?.ContentEncoding);
+        Assert.Equal([0, 1, 2, 3, 4], service.PostedMessageContent?.Payload.ToArray());
+    }
+
     [Theory]
     [InlineData("""{"messageContent":{"mediaType":"application/json","content":{"speed":1200}},"topics":["Topic-A"]}""")]
     [InlineData("""{"messageContent":{"contentEncoding":"gzip","content":{"speed":1200}},"topics":["Topic-A"]}""")]
     [InlineData("""{"messageContent":{"content":"speed=1200"},"topics":["Topic-A"]}""")]
     [InlineData("""{"messageContent":{"mediaType":" ","content":"speed=1200"},"topics":["Topic-A"]}""")]
-    [InlineData("""{"messageContent":{"mediaType":"application/octet-stream","contentEncoding":"base64","content":"AAECAwQ="},"topics":["Topic-A"]}""")]
+    [InlineData("""{"messageContent":{"mediaType":"application/octet-stream","contentEncoding":"base64","content":"not-base64"},"topics":["Topic-A"]}""")]
+    [InlineData("""{"messageContent":{"mediaType":"application/octet-stream","contentEncoding":"gzip","content":"AAECAwQ="},"topics":["Topic-A"]}""")]
+    [InlineData("""{"messageContent":{"mediaType":" ","contentEncoding":"base64","content":"AAECAwQ="},"topics":["Topic-A"]}""")]
     [InlineData("""{"messageContent":{"content":[1200]},"topics":["Topic-A"]}""")]
     public async Task PostPublication_InvalidMessageContentSemantics_ReturnsParameterFault(string envelope)
     {
@@ -146,21 +166,20 @@ public sealed class MessageContentSemanticsControllerTests
     }
 
     [Fact]
-    public async Task PostRequest_EncodedContent_ReturnsParameterFault()
+    public async Task PostRequest_BinaryContent_DelegatesDecodedPayloadAndPayloadMediaType()
     {
         ConsumerRequestService service = new();
         ConsumerRequestServiceController controller = CreateConsumerRequestController(service);
-        SetBody(
-            controller,
-            """{"messageContent":{"mediaType":"application/octet-stream","contentEncoding":"base64","content":"AAECAwQ="},"topics":["Topic-A"]}""",
-            "application/json");
+        SetBody(controller, BinaryEnvelope, "application/json");
 
         IActionResult result = await controller.PostRequest(Guid.NewGuid().ToString(), CancellationToken.None);
 
-        BadRequestObjectResult badRequest = Assert.IsType<BadRequestObjectResult>(result);
-        FaultResponse fault = Assert.IsType<FaultResponse>(badRequest.Value);
-        Assert.Equal("ParameterFault", fault.Fault);
-        Assert.Null(service.PostedMessageContent);
+        ObjectResult created = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status201Created, created.StatusCode);
+        Assert.Equal(InternalMessageContentKind.Binary, service.PostedMessageContent?.Kind);
+        Assert.Equal("application/octet-stream", service.PostedMessageContent?.MediaType);
+        Assert.Equal("base64", service.PostedMessageContent?.ContentEncoding);
+        Assert.Equal([0, 1, 2, 3, 4], service.PostedMessageContent?.Payload.ToArray());
     }
 
     [Theory]
@@ -217,11 +236,30 @@ public sealed class MessageContentSemanticsControllerTests
         Assert.Equal(expectedMediaType, service.PostedMessageContent?.MediaType);
     }
 
+    [Fact]
+    public async Task PostResponse_BinaryContent_DelegatesDecodedPayloadAndPayloadMediaType()
+    {
+        ProviderRequestService service = new();
+        ProviderRequestServiceController controller = CreateProviderRequestController(service);
+        SetBody(controller, """{"messageContent":{"mediaType":"application/octet-stream","contentEncoding":"base64","content":"AAECAwQ="}}""", "application/json");
+
+        IActionResult result = await controller.PostResponse(Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), CancellationToken.None);
+
+        ObjectResult created = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status201Created, created.StatusCode);
+        Assert.Equal(InternalMessageContentKind.Binary, service.PostedMessageContent?.Kind);
+        Assert.Equal("application/octet-stream", service.PostedMessageContent?.MediaType);
+        Assert.Equal("base64", service.PostedMessageContent?.ContentEncoding);
+        Assert.Equal([0, 1, 2, 3, 4], service.PostedMessageContent?.Payload.ToArray());
+    }
+
     [Theory]
     [InlineData("""{"messageContent":{"mediaType":"application/json","content":{"accepted":true}}}""")]
     [InlineData("""{"messageContent":{"contentEncoding":"gzip","content":{"accepted":true}}}""")]
     [InlineData("""{"messageContent":{"content":"accepted=true"}}""")]
-    [InlineData("""{"messageContent":{"mediaType":"application/octet-stream","contentEncoding":"base64","content":"AAECAwQ="}}""")]
+    [InlineData("""{"messageContent":{"mediaType":"application/octet-stream","contentEncoding":"base64","content":"not-base64"}}""")]
+    [InlineData("""{"messageContent":{"mediaType":"application/octet-stream","contentEncoding":"gzip","content":"AAECAwQ="}}""")]
+    [InlineData("""{"messageContent":{"mediaType":" ","contentEncoding":"base64","content":"AAECAwQ="}}""")]
     public async Task PostResponse_InvalidMessageContentSemantics_ReturnsParameterFault(string envelope)
     {
         ProviderRequestService service = new();
