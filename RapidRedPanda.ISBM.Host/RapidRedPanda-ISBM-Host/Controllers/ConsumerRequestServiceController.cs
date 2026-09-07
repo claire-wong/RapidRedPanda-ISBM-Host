@@ -35,11 +35,27 @@ public sealed class ConsumerRequestServiceController : Controller
     [HttpPost("channels/{channelId}/consumer-request-sessions")]
     public async Task<IActionResult> OpenConsumerRequestSession(string channelId, CancellationToken cancellationToken)
     {
+        OpenConsumerRequestSessionRequest? request;
+        try
+        {
+            request = Request.ContentLength == 0 || (Request.ContentLength is null && Request.Body.CanSeek && Request.Body.Length == 0)
+                ? new OpenConsumerRequestSessionRequest()
+                : await JsonSerializer.DeserializeAsync<OpenConsumerRequestSessionRequest>(
+                    Request.Body,
+                    JsonSerializerOptions,
+                    cancellationToken);
+        }
+        catch (JsonException)
+        {
+            return BadRequest(new FaultResponse("ParameterFault"));
+        }
+
         OpenConsumerRequestSessionResult result;
         try
         {
             result = await _requestSessionService.OpenConsumerRequestSessionAsync(
                 channelId,
+                request?.ListenerUrl,
                 TryReadBasicCredentials(),
                 cancellationToken);
         }

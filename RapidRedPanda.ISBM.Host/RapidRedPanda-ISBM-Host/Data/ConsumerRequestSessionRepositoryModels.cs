@@ -9,7 +9,8 @@ public static class ConsumerRequestSessionStates
 public sealed record ConsumerRequestSessionCreateData(
     Guid SessionId,
     Guid ChannelId,
-    string? AuthenticatedTokenUsername);
+    string? AuthenticatedTokenUsername,
+    string? ListenerUrl = null);
 
 public sealed record ConsumerRequestSessionData(
     Guid SessionId,
@@ -17,7 +18,8 @@ public sealed record ConsumerRequestSessionData(
     string SessionState,
     string? AuthenticatedTokenUsername,
     DateTime CreatedUtc,
-    DateTime? ClosedUtc);
+    DateTime? ClosedUtc,
+    string? ListenerUrl = null);
 
 public enum InsertConsumerRequestSessionFailureKind
 {

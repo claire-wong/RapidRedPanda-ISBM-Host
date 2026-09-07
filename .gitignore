@@ -5,8 +5,13 @@ docs/
 RapidRedPanda.ISBM.Management.Web/
 RapidRedPanda.ISBM.Management.Web.Tests/
 
+# Database scripts: track only the production fresh-install schema
+RapidRedPanda.ISBM.Host/Database/Scripts/*
+!RapidRedPanda.ISBM.Host/Database/Scripts/Install/
+RapidRedPanda.ISBM.Host/Database/Scripts/Install/*
+!RapidRedPanda.ISBM.Host/Database/Scripts/Install/002_CreatePhaseOneSchema.sql
+
 # Local SQL Server database files and active database directory
-RapidRedPanda.ISBM.Host/Database/Scripts/
 RapidRedPanda.ISBM.Host/Database/Active/
 *.mdf
 *.ldf
@@ -54,3 +59,4 @@ coverage.*
 .DS_Store
 Thumbs.db
 desktop.ini
+RapidRedPanda.ISBM.Host/Database/Scripts/Install/002_CreatePhaseOneSchema.sql

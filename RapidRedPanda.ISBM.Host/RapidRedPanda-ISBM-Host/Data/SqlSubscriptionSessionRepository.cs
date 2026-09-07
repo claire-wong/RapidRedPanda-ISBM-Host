@@ -22,27 +22,6 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
         ConsumerSubscriptionSessionCreateData session,
         CancellationToken cancellationToken)
     {
-        return await InsertSubscriptionSessionAsync(
-            session,
-            SubscriptionSessionTypes.ConsumerPublicationSubscription,
-            cancellationToken);
-    }
-
-    public async Task<InsertSubscriptionSessionResult> InsertProviderRequestSessionAsync(
-        ConsumerSubscriptionSessionCreateData session,
-        CancellationToken cancellationToken)
-    {
-        return await InsertSubscriptionSessionAsync(
-            session,
-            SubscriptionSessionTypes.ProviderRequestSubscription,
-            cancellationToken);
-    }
-
-    private async Task<InsertSubscriptionSessionResult> InsertSubscriptionSessionAsync(
-        ConsumerSubscriptionSessionCreateData session,
-        string sessionType,
-        CancellationToken cancellationToken)
-    {
         try
         {
             await using SqlConnection connection = new(_connectionString);
@@ -60,7 +39,8 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
                         SessionState,
                         AzureTopicName,
                         AzureSubscriptionName,
-                        AuthenticatedTokenUsername
+                        AuthenticatedTokenUsername,
+                        ListenerUrl
                     )
                     values
                     (
@@ -70,7 +50,8 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
                         @SessionState,
                         @AzureTopicName,
                         @AzureSubscriptionName,
-                        @AuthenticatedTokenUsername
+                        @AuthenticatedTokenUsername,
+                        @ListenerUrl
                     );
                     """;
 
@@ -78,12 +59,14 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
                 {
                     command.Parameters.Add("@SessionId", SqlDbType.UniqueIdentifier).Value = session.SessionId;
                     command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = session.ChannelId;
-                    command.Parameters.Add("@SessionType", SqlDbType.NVarChar, 64).Value = sessionType;
+                    command.Parameters.Add("@SessionType", SqlDbType.NVarChar, 64).Value = SubscriptionSessionTypes.ConsumerPublicationSubscription;
                     command.Parameters.Add("@SessionState", SqlDbType.NVarChar, 32).Value = SubscriptionSessionStates.Open;
                     command.Parameters.Add("@AzureTopicName", SqlDbType.NVarChar, 260).Value = session.AzureTopicName;
                     command.Parameters.Add("@AzureSubscriptionName", SqlDbType.NVarChar, 260).Value = session.AzureSubscriptionName;
                     command.Parameters.Add("@AuthenticatedTokenUsername", SqlDbType.NVarChar, 256).Value =
                         (object?)session.AuthenticatedTokenUsername ?? DBNull.Value;
+                    command.Parameters.Add("@ListenerUrl", SqlDbType.NVarChar, 2048).Value =
+                        (object?)session.ListenerUrl ?? DBNull.Value;
 
                     await command.ExecuteNonQueryAsync(cancellationToken);
                 }
@@ -147,7 +130,8 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
                     AzureSubscriptionName,
                     AuthenticatedTokenUsername,
                     OpenedUtc,
-                    ClosedUtc
+                    ClosedUtc,
+                    ListenerUrl
                 from dbo.ConsumerSubscriptionSessions
                 where SessionId = @SessionId;
                 """;
@@ -171,7 +155,8 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
                 [],
                 reader.IsDBNull(6) ? null : reader.GetString(6),
                 reader.GetDateTime(7),
-                reader.IsDBNull(8) ? null : reader.GetDateTime(8));
+                reader.IsDBNull(8) ? null : reader.GetDateTime(8),
+                reader.IsDBNull(9) ? null : reader.GetString(9));
 
             await reader.CloseAsync();
 
@@ -208,25 +193,40 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
         {
             await using SqlConnection connection = new(_connectionString);
             await connection.OpenAsync(cancellationToken);
+            await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
 
-            const string sql = """
-                update dbo.ConsumerSubscriptionSessions
-                   set SessionState = @ClosedState,
-                       ClosedUtc = coalesce(ClosedUtc, sysutcdatetime())
-                 where SessionId = @SessionId;
-                """;
-
-            await using SqlCommand command = new(sql, connection);
-            command.Parameters.Add("@ClosedState", SqlDbType.NVarChar, 32).Value = SubscriptionSessionStates.Closed;
-            command.Parameters.Add("@SessionId", SqlDbType.UniqueIdentifier).Value = sessionId;
-
-            int affectedRows = await command.ExecuteNonQueryAsync(cancellationToken);
-            if (affectedRows == 0)
+            try
             {
-                return CloseSubscriptionSessionResult.Failure(CloseSubscriptionSessionFailureKind.NotFound, "Subscription session was not found.");
-            }
+                const string sql = """
+                    update dbo.ConsumerSubscriptionSessions
+                       set SessionState = @ClosedState,
+                           ClosedUtc = coalesce(ClosedUtc, @ClosedUtc)
+                     where SessionId = @SessionId;
+                    """;
 
-            return CloseSubscriptionSessionResult.Success();
+                DateTime closedUtc = DateTime.UtcNow;
+                await using (SqlCommand command = new(sql, connection, transaction))
+                {
+                    command.Parameters.Add("@ClosedState", SqlDbType.NVarChar, 32).Value = SubscriptionSessionStates.Closed;
+                    command.Parameters.Add("@ClosedUtc", SqlDbType.DateTime2).Value = closedUtc;
+                    command.Parameters.Add("@SessionId", SqlDbType.UniqueIdentifier).Value = sessionId;
+
+                    int affectedRows = await command.ExecuteNonQueryAsync(cancellationToken);
+                    if (affectedRows == 0)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        return CloseSubscriptionSessionResult.Failure(CloseSubscriptionSessionFailureKind.NotFound, "Subscription session was not found.");
+                    }
+                }
+
+                await transaction.CommitAsync(cancellationToken);
+                return CloseSubscriptionSessionResult.Success();
+            }
+            catch
+            {
+                await RollbackQuietlyAsync(transaction, cancellationToken);
+                throw;
+            }
         }
         catch (SqlException exception)
         {

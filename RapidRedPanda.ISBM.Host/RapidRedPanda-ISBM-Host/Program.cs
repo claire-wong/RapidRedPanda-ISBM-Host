@@ -12,8 +12,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddScoped<IChannelRepository, SqlChannelRepository>();
 builder.Services.AddScoped<ISubscriptionSessionRepository, SqlSubscriptionSessionRepository>();
+builder.Services.AddScoped<IProviderRequestSessionRepository, SqlProviderRequestSessionRepository>();
 builder.Services.AddScoped<IProviderPublicationSessionRepository, SqlProviderPublicationSessionRepository>();
 builder.Services.AddScoped<IProviderPublicationRepository, SqlProviderPublicationRepository>();
+builder.Services.AddScoped<IPublicationNotificationRepository, SqlPublicationNotificationRepository>();
 builder.Services.AddScoped<IConsumerRequestSessionRepository, SqlConsumerRequestSessionRepository>();
 builder.Services.AddScoped<IConsumerRequestRepository, SqlConsumerRequestRepository>();
 builder.Services.AddScoped<IRequestResponseRepository, SqlRequestResponseRepository>();
@@ -24,6 +26,27 @@ builder.Services.AddScoped<IProviderRequestSessionService, ProviderRequestSessio
 builder.Services.AddScoped<IConsumerRequestSessionService, ConsumerRequestSessionService>();
 builder.Services.AddScoped<ISessionCloseService, SessionCloseService>();
 builder.Services.AddSingleton<IUsernameTokenParser, UsernameTokenParser>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IPublicationNotificationUriBuilder, PublicationNotificationUriBuilder>();
+builder.Services.AddSingleton<IPublicationNotificationClient, PublicationNotificationClient>();
+builder.Services
+    .AddOptions<PublicationNotificationOptions>()
+    .Bind(builder.Configuration.GetSection(PublicationNotificationOptions.SectionName))
+    .Validate(
+        PublicationNotificationOptions.IsValid,
+        "PublicationNotifications configuration is invalid. Ensure positive batch/concurrency/retry values, MaximumDeliveryAgeMinutes >= 1, and LeaseDurationSeconds >= HttpTimeoutSeconds * 3.")
+    .ValidateOnStart();
+builder.Services.AddHttpClient(PublicationNotificationClient.HttpClientName, (serviceProvider, httpClient) =>
+{
+    PublicationNotificationOptions options = serviceProvider.GetRequiredService<IOptions<PublicationNotificationOptions>>().Value;
+    httpClient.Timeout = TimeSpan.FromSeconds(options.HttpTimeoutSeconds);
+})
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    AllowAutoRedirect = false,
+    UseCookies = false
+});
+builder.Services.AddHostedService<PublicationNotificationDispatcher>();
 builder.Services
     .AddOptions<AzureServiceBusOptions>()
     .Bind(builder.Configuration.GetSection(AzureServiceBusOptions.SectionName))

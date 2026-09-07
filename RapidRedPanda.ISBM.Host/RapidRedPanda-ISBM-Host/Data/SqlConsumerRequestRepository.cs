@@ -1,4 +1,6 @@
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Options;
+using RapidRedPanda.ISBM.Host.Services;
 using System.Data;
 
 namespace RapidRedPanda.ISBM.Host.Data;
@@ -8,14 +10,17 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
     private const string ConnectionStringName = "ISBMHost";
 
     private readonly string _connectionString;
+    private readonly PublicationNotificationOptions _notificationOptions;
     private readonly ILogger<SqlConsumerRequestRepository> _logger;
 
     public SqlConsumerRequestRepository(
         IConfiguration configuration,
+        IOptions<PublicationNotificationOptions> notificationOptions,
         ILogger<SqlConsumerRequestRepository> logger)
     {
         _connectionString = configuration.GetConnectionString(ConnectionStringName)
             ?? throw new InvalidOperationException($"Connection string '{ConnectionStringName}' is not configured.");
+        _notificationOptions = notificationOptions.Value;
         _logger = logger;
     }
 
@@ -85,6 +90,13 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
                     await command.ExecuteNonQueryAsync(cancellationToken);
                 }
 
+                await InsertRequestNotificationsAsync(
+                    connection,
+                    transaction,
+                    request,
+                    _notificationOptions.MaximumDeliveryAgeMinutes,
+                    cancellationToken);
+
                 await transaction.CommitAsync(cancellationToken);
                 return ConsumerRequestRepositoryResult.Success();
             }
@@ -103,6 +115,113 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
         }
     }
 
+    private static async Task InsertRequestNotificationsAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        ConsumerRequestCreateData request,
+        int maximumDeliveryAgeMinutes,
+        CancellationToken cancellationToken)
+    {
+        const string notificationSql = """
+            declare @SqlUtcNow datetime2(7) = sysutcdatetime();
+            declare @ConfiguredDeadlineUtc datetime2(7) = dateadd(minute, @MaximumDeliveryAgeMinutes, @SqlUtcNow);
+            declare @DeliveryDeadlineUtc datetime2(7) =
+                case
+                    when @EffectiveExpiryUtc is not null and @EffectiveExpiryUtc < @ConfiguredDeadlineUtc then @EffectiveExpiryUtc
+                    else @ConfiguredDeadlineUtc
+                end;
+
+            declare @CreatedNotifications table
+            (
+                NotificationId uniqueidentifier not null,
+                ProviderRequestSessionId uniqueidentifier not null
+            );
+
+            insert dbo.Notifications
+            (
+                NotificationId,
+                NotificationServiceType,
+                MessageId,
+                ConsumerSubscriptionSessionId,
+                ProviderRequestSessionId,
+                ConsumerRequestSessionId,
+                ListenerUrl,
+                State,
+                NextAttemptUtc,
+                DeliveryDeadlineUtc
+            )
+            output inserted.NotificationId, inserted.ProviderRequestSessionId
+            into @CreatedNotifications (NotificationId, ProviderRequestSessionId)
+            select
+                newid(),
+                @RequestServiceType,
+                @MessageId,
+                null,
+                session.SessionId,
+                null,
+                session.ListenerUrl,
+                @PendingState,
+                @SqlUtcNow,
+                @DeliveryDeadlineUtc
+            from dbo.ProviderRequestSessions session
+            where session.ChannelId = @ChannelId
+              and session.SessionState = @OpenSessionState
+              and session.OpenedUtc <= @CreatedUtc
+              and session.ListenerUrl is not null
+              and ltrim(rtrim(session.ListenerUrl)) <> N''
+              and (@EffectiveExpiryUtc is null or @EffectiveExpiryUtc > @SqlUtcNow)
+              and exists
+              (
+                  select 1
+                  from dbo.ProviderRequestSessionTopics sessionTopic
+                  inner join dbo.ConsumerRequestTopics requestTopic
+                          on requestTopic.TopicValue = sessionTopic.TopicValue
+                  where sessionTopic.ProviderRequestSessionId = session.SessionId
+                    and requestTopic.MessageId = @MessageId
+              )
+              and not exists
+              (
+                  select 1
+                  from dbo.Notifications existing with (updlock, holdlock)
+                  where existing.MessageId = @MessageId
+                    and existing.ProviderRequestSessionId = session.SessionId
+                    and existing.NotificationServiceType = @RequestServiceType
+              );
+
+            insert dbo.NotificationTopics
+            (
+                NotificationId,
+                TopicOrdinal,
+                TopicValue
+            )
+            select
+                created.NotificationId,
+                topic.TopicOrdinal,
+                topic.TopicValue
+            from @CreatedNotifications created
+            cross join dbo.ConsumerRequestTopics topic
+            where topic.MessageId = @MessageId
+              and not exists
+              (
+                  select 1
+                  from dbo.NotificationTopics existingTopic
+                  where existingTopic.NotificationId = created.NotificationId
+                    and existingTopic.TopicValue = topic.TopicValue
+              );
+            """;
+
+        await using SqlCommand command = new(notificationSql, connection, transaction);
+        command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = request.MessageId;
+        command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = request.ChannelId;
+        command.Parameters.Add("@CreatedUtc", SqlDbType.DateTime2).Value = request.CreatedUtc;
+        command.Parameters.Add("@EffectiveExpiryUtc", SqlDbType.DateTime2).Value = (object?)request.EffectiveExpiryUtc ?? DBNull.Value;
+        command.Parameters.Add("@MaximumDeliveryAgeMinutes", SqlDbType.Int).Value = maximumDeliveryAgeMinutes;
+        command.Parameters.Add("@RequestServiceType", SqlDbType.NVarChar, 32).Value = NotificationServiceTypes.Request;
+        command.Parameters.Add("@PendingState", SqlDbType.NVarChar, 32).Value = PublicationNotificationStates.Pending;
+        command.Parameters.Add("@OpenSessionState", SqlDbType.NVarChar, 32).Value = SubscriptionSessionStates.Open;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     public async Task<ConsumerRequestRepositoryResult> ExpireRequestAsync(
         Guid consumerSessionId,
         Guid channelId,
@@ -114,23 +233,47 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
         {
             await using SqlConnection connection = new(_connectionString);
             await connection.OpenAsync(cancellationToken);
+            await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
 
-            const string sql = """
-                update dbo.ConsumerRequests
-                   set ExpiredUtc = coalesce(ExpiredUtc, @ExpiredUtc)
-                 where MessageId = @MessageId
-                   and ConsumerSessionId = @ConsumerSessionId
-                   and ChannelId = @ChannelId;
-                """;
+            try
+            {
+                const string sql = """
+                    update dbo.ConsumerRequests
+                       set ExpiredUtc = coalesce(ExpiredUtc, @ExpiredUtc)
+                     where MessageId = @MessageId
+                       and ConsumerSessionId = @ConsumerSessionId
+                       and ChannelId = @ChannelId;
+                    """;
 
-            await using SqlCommand command = new(sql, connection);
-            command.Parameters.Add("@ExpiredUtc", SqlDbType.DateTime2).Value = expiredUtc;
-            command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = messageId;
-            command.Parameters.Add("@ConsumerSessionId", SqlDbType.UniqueIdentifier).Value = consumerSessionId;
-            command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = channelId;
-            await command.ExecuteNonQueryAsync(cancellationToken);
+                await using (SqlCommand command = new(sql, connection, transaction))
+                {
+                    command.Parameters.Add("@ExpiredUtc", SqlDbType.DateTime2).Value = expiredUtc;
+                    command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = messageId;
+                    command.Parameters.Add("@ConsumerSessionId", SqlDbType.UniqueIdentifier).Value = consumerSessionId;
+                    command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = channelId;
+                    await command.ExecuteNonQueryAsync(cancellationToken);
+                }
 
-            return ConsumerRequestRepositoryResult.Success();
+                int suppressedCount = await SqlRequestNotificationSuppression.SuppressForMessageAsync(
+                    connection,
+                    transaction,
+                    messageId,
+                    expiredUtc,
+                    PublicationNotificationSuppressionReasons.RequestExpired,
+                    cancellationToken);
+
+                await transaction.CommitAsync(cancellationToken);
+                _logger.LogInformation(
+                    "Suppressed {SuppressedCount} request notifications while expiring request {MessageId}.",
+                    suppressedCount,
+                    messageId);
+                return ConsumerRequestRepositoryResult.Success();
+            }
+            catch
+            {
+                await RollbackQuietlyAsync(transaction, cancellationToken);
+                throw;
+            }
         }
         catch (SqlException exception)
         {
@@ -156,12 +299,11 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
                 (
                     select 1
                     from dbo.ConsumerRequests request
-                    inner join dbo.ConsumerSubscriptionSessions session
+                    inner join dbo.ProviderRequestSessions session
                             on session.ChannelId = request.ChannelId
                     where request.MessageId = @MessageId
                       and request.ExpiredUtc is not null
                       and session.SessionId = @ProviderSessionId
-                      and session.SessionType = @ProviderRequestSessionType
                 )
                 then cast(1 as bit) else cast(0 as bit) end;
                 """;
@@ -169,8 +311,6 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
             await using SqlCommand command = new(sql, connection);
             command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = messageId;
             command.Parameters.Add("@ProviderSessionId", SqlDbType.UniqueIdentifier).Value = providerSessionId;
-            command.Parameters.Add("@ProviderRequestSessionType", SqlDbType.NVarChar, 64).Value = SubscriptionSessionTypes.ProviderRequestSubscription;
-
             bool isExpired = (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
             return RequestExpirationStateResult.Success(isExpired);
         }

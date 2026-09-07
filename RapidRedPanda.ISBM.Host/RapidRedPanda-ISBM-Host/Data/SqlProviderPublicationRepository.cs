@@ -1,4 +1,5 @@
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Options;
 using RapidRedPanda.ISBM.Host.Services;
 using System.Data;
 
@@ -9,14 +10,17 @@ public sealed class SqlProviderPublicationRepository : IProviderPublicationRepos
     private const string ConnectionStringName = "ISBMHost";
 
     private readonly string _connectionString;
+    private readonly PublicationNotificationOptions _notificationOptions;
     private readonly ILogger<SqlProviderPublicationRepository> _logger;
 
     public SqlProviderPublicationRepository(
         IConfiguration configuration,
+        IOptions<PublicationNotificationOptions> notificationOptions,
         ILogger<SqlProviderPublicationRepository> logger)
     {
         _connectionString = configuration.GetConnectionString(ConnectionStringName)
             ?? throw new InvalidOperationException($"Connection string '{ConnectionStringName}' is not configured.");
+        _notificationOptions = notificationOptions.Value;
         _logger = logger;
     }
 
@@ -86,7 +90,18 @@ public sealed class SqlProviderPublicationRepository : IProviderPublicationRepos
                     await command.ExecuteNonQueryAsync(cancellationToken);
                 }
 
-                await InsertRecipientSnapshotAsync(connection, transaction, publication, cancellationToken);
+                await InsertRecipientSnapshotAsync(
+                    connection,
+                    transaction,
+                    publication,
+                    _notificationOptions.MaximumDeliveryAgeMinutes,
+                    cancellationToken);
+                await InsertPublicationNotificationsAsync(
+                    connection,
+                    transaction,
+                    publication,
+                    _notificationOptions.MaximumDeliveryAgeMinutes,
+                    cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
             }
             catch
@@ -308,6 +323,7 @@ public sealed class SqlProviderPublicationRepository : IProviderPublicationRepos
         SqlConnection connection,
         SqlTransaction transaction,
         ProviderPublicationCreateData publication,
+        int maximumDeliveryAgeMinutes,
         CancellationToken cancellationToken)
     {
         const string recipientSql = """
@@ -346,6 +362,86 @@ public sealed class SqlProviderPublicationRepository : IProviderPublicationRepos
         command.Parameters.Add("@PublishedUtc", SqlDbType.DateTime2).Value = publication.PublishedUtc;
         command.Parameters.Add("@PendingState", SqlDbType.NVarChar, 32).Value = ProviderPublicationRecipientStates.Pending;
         command.Parameters.Add("@OpenState", SqlDbType.NVarChar, 32).Value = SubscriptionSessionStates.Open;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task InsertPublicationNotificationsAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        ProviderPublicationCreateData publication,
+        int maximumDeliveryAgeMinutes,
+        CancellationToken cancellationToken)
+    {
+        const string notificationSql = """
+            declare @CreatedNotifications table
+            (
+                NotificationId uniqueidentifier not null,
+                ConsumerSessionId uniqueidentifier not null
+            );
+
+            insert dbo.Notifications
+            (
+                NotificationId,
+                NotificationServiceType,
+                MessageId,
+                ConsumerSubscriptionSessionId,
+                ProviderRequestSessionId,
+                ConsumerRequestSessionId,
+                ListenerUrl,
+                State,
+                NextAttemptUtc,
+                DeliveryDeadlineUtc
+            )
+            output inserted.NotificationId, inserted.ConsumerSubscriptionSessionId
+            into @CreatedNotifications (NotificationId, ConsumerSessionId)
+            select
+                newid(),
+                @PublicationServiceType,
+                @MessageId,
+                recipient.ConsumerSessionId,
+                null,
+                null,
+                session.ListenerUrl,
+                @PendingState,
+                @PublishedUtc,
+                dateadd(minute, @MaximumDeliveryAgeMinutes, @PublishedUtc)
+            from dbo.ProviderPublicationRecipients recipient
+            inner join dbo.ConsumerSubscriptionSessions session
+                    on session.SessionId = recipient.ConsumerSessionId
+            where recipient.MessageId = @MessageId
+              and recipient.State = @RecipientPendingState
+              and session.ListenerUrl is not null
+              and not exists
+              (
+                  select 1
+                  from dbo.Notifications existing
+                  where existing.MessageId = recipient.MessageId
+                    and existing.ConsumerSubscriptionSessionId = recipient.ConsumerSessionId
+                    and existing.NotificationServiceType = @PublicationServiceType
+               );
+
+            insert dbo.NotificationTopics
+            (
+                NotificationId,
+                TopicOrdinal,
+                TopicValue
+            )
+            select
+                created.NotificationId,
+                topic.TopicOrdinal,
+                topic.TopicValue
+            from @CreatedNotifications created
+            cross join dbo.ProviderPublicationTopics topic
+            where topic.MessageId = @MessageId;
+            """;
+
+        await using SqlCommand command = new(notificationSql, connection, transaction);
+        command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = publication.MessageId;
+        command.Parameters.Add("@PublicationServiceType", SqlDbType.NVarChar, 32).Value = NotificationServiceTypes.Publication;
+        command.Parameters.Add("@PendingState", SqlDbType.NVarChar, 32).Value = PublicationNotificationStates.Pending;
+        command.Parameters.Add("@RecipientPendingState", SqlDbType.NVarChar, 32).Value = ProviderPublicationRecipientStates.Pending;
+        command.Parameters.Add("@PublishedUtc", SqlDbType.DateTime2).Value = publication.PublishedUtc;
+        command.Parameters.Add("@MaximumDeliveryAgeMinutes", SqlDbType.Int).Value = maximumDeliveryAgeMinutes;
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

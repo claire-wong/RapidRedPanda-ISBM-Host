@@ -9,6 +9,7 @@ public interface IConsumerRequestSessionService
 {
     Task<OpenConsumerRequestSessionResult> OpenConsumerRequestSessionAsync(
         string channelId,
+        string? listenerUrl,
         ChannelCredentials? credentials,
         CancellationToken cancellationToken);
 
@@ -217,10 +218,16 @@ public sealed class ConsumerRequestSessionService : IConsumerRequestSessionServi
 
     public async Task<OpenConsumerRequestSessionResult> OpenConsumerRequestSessionAsync(
         string channelId,
+        string? listenerUrl,
         ChannelCredentials? credentials,
         CancellationToken cancellationToken)
     {
         if (!TryDecodeAndValidateChannelUri(channelId, out string decodedChannelUri))
+        {
+            return OpenConsumerRequestSessionResult.Failure(OpenConsumerRequestSessionFailureKind.ParameterFault);
+        }
+
+        if (!ListenerUrlValidation.TryNormalize(listenerUrl, out string? normalizedListenerUrl))
         {
             return OpenConsumerRequestSessionResult.Failure(OpenConsumerRequestSessionFailureKind.ParameterFault);
         }
@@ -245,7 +252,8 @@ public sealed class ConsumerRequestSessionService : IConsumerRequestSessionServi
             new ConsumerRequestSessionCreateData(
                 sessionId,
                 channelResult.Channel.ChannelId,
-                channelResult.Channel.AuthenticatedTokenUsername),
+                channelResult.Channel.AuthenticatedTokenUsername,
+                normalizedListenerUrl),
             cancellationToken);
 
         return insertResult.Succeeded

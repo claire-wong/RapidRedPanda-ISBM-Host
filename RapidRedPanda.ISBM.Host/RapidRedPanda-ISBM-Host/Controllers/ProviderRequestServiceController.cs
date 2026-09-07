@@ -62,6 +62,7 @@ public sealed class ProviderRequestServiceController : Controller
             result = await _requestSessionService.OpenProviderRequestSessionAsync(
                 channelId,
                 request.Topics,
+                request.ListenerUrl,
                 TryReadBasicCredentials(),
                 cancellationToken);
         }

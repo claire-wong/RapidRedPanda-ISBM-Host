@@ -10,6 +10,7 @@ public interface IConsumerSubscriptionSessionService
     Task<OpenSubscriptionSessionResult> OpenSubscriptionSessionAsync(
         string channelId,
         IReadOnlyList<string> topics,
+        string? listenerUrl,
         ChannelCredentials? credentials,
         CancellationToken cancellationToken);
 
@@ -172,10 +173,16 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
     public async Task<OpenSubscriptionSessionResult> OpenSubscriptionSessionAsync(
         string channelId,
         IReadOnlyList<string> topics,
+        string? listenerUrl,
         ChannelCredentials? credentials,
         CancellationToken cancellationToken)
     {
         if (!TryDecodeAndValidateChannelUri(channelId, out string decodedChannelUri))
+        {
+            return OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.ParameterFault);
+        }
+
+        if (!ListenerUrlValidation.TryNormalize(listenerUrl, out string? normalizedListenerUrl))
         {
             return OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.ParameterFault);
         }
@@ -288,7 +295,8 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
                 channel.AzureTopicName,
                 azureSubscriptionName,
                 requestedTopics,
-                channel.AuthenticatedTokenUsername),
+                channel.AuthenticatedTokenUsername,
+                normalizedListenerUrl),
             cancellationToken);
 
         if (insertResult.Succeeded)
