@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using RapidRedPanda.ISBM.Host.Contracts;
 using RapidRedPanda.ISBM.Host.Data;
+using RapidRedPanda.ISBM.Host.Messaging;
 using RapidRedPanda.ISBM.Host.Services;
+using RapidRedPanda.ISBM.Host.Validation;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -64,6 +66,11 @@ public sealed class ProviderPublicationServiceController : Controller
     [HttpPost("sessions/{sessionId}/publications")]
     public async Task<IActionResult> PostPublication(string sessionId, CancellationToken cancellationToken)
     {
+        if (!RestEnvelopeMediaTypeValidator.IsJsonEnvelopeMediaType(Request.ContentType))
+        {
+            return new UnsupportedMediaTypeResult();
+        }
+
         PostPublicationRequest? request;
         try
         {
@@ -78,8 +85,12 @@ public sealed class ProviderPublicationServiceController : Controller
         }
 
         if (request is null ||
-            request.MessageContent.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null ||
-            !TryReadMessageContentMediaType(request.MessageContent, out string? mediaType))
+            request.MessageContent.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+        {
+            return BadRequest(new FaultResponse("ParameterFault"));
+        }
+
+        if (!RestMessageContentMapper.TryFromRest(request.MessageContent, out InternalMessageContent? messageContent))
         {
             return BadRequest(new FaultResponse("ParameterFault"));
         }
@@ -90,8 +101,7 @@ public sealed class ProviderPublicationServiceController : Controller
             result = await _publicationSessionService.PostPublicationAsync(
                 sessionId,
                 request.Topics,
-                BinaryData.FromString(request.MessageContent.GetRawText()),
-                mediaType ?? Request.ContentType,
+                messageContent!,
                 request.Expiry,
                 cancellationToken);
         }
@@ -148,30 +158,6 @@ public sealed class ProviderPublicationServiceController : Controller
             ExpirePublicationFailureKind.ChannelFault => NotFound(new FaultResponse("ChannelFault")),
             _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
         };
-    }
-
-    private static bool TryReadMessageContentMediaType(JsonElement messageContent, out string? mediaType)
-    {
-        mediaType = null;
-        if (messageContent.ValueKind is not JsonValueKind.Object ||
-            !messageContent.TryGetProperty("content", out _))
-        {
-            return false;
-        }
-
-        if (!messageContent.TryGetProperty("mediaType", out JsonElement mediaTypeElement) ||
-            mediaTypeElement.ValueKind is JsonValueKind.Null)
-        {
-            return true;
-        }
-
-        if (mediaTypeElement.ValueKind is not JsonValueKind.String)
-        {
-            return false;
-        }
-
-        mediaType = mediaTypeElement.GetString();
-        return !string.IsNullOrWhiteSpace(mediaType);
     }
 
     private ChannelCredentials? TryReadBasicCredentials()

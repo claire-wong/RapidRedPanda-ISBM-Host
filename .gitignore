@@ -1,8 +1,9 @@
 # Documentation is local-only until final public-release review
 docs/
 
-# Test project is local-only for the initial repository push
-RapidRedPanda.ISBM.Host/RapidRedPanda.ISBM.Host.Tests/
+# Prototype management projects are not part of the upcoming public release
+RapidRedPanda.ISBM.Management.Web/
+RapidRedPanda.ISBM.Management.Web.Tests/
 
 # Local SQL Server database files and active database directory
 RapidRedPanda.ISBM.Host/Database/Scripts/

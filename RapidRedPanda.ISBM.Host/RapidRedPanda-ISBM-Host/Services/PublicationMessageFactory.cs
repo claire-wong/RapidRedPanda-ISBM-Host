@@ -1,4 +1,5 @@
 using Azure.Messaging.ServiceBus;
+using RapidRedPanda.ISBM.Host.Messaging;
 using System.Text.Json;
 
 namespace RapidRedPanda.ISBM.Host.Services;
@@ -18,7 +19,30 @@ public static class PublicationMessageFactory
     public static PublicationMessageEnvelope CreatePublicationMessage(BinaryData messageContent, IReadOnlyList<string> topics)
     {
         Guid publicationId = Guid.NewGuid();
-        BinaryData payload = BinaryData.FromBytes(CreatePublicationEnvelopeBody(publicationId, messageContent, topics));
+        InternalMessageContent internalContent;
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(messageContent);
+            if (!RestMessageContentMapper.TryFromRest(document.RootElement, out InternalMessageContent? content))
+            {
+                throw new ArgumentException("Message content must be a valid ISBM MessageContent value.", nameof(messageContent));
+            }
+
+            internalContent = content!;
+        }
+        catch (JsonException exception)
+        {
+            throw new ArgumentException("Message content must be a valid ISBM MessageContent value.", nameof(messageContent), exception);
+        }
+
+        BinaryData payload = BinaryData.FromBytes(BrokerMessageContentAdapter.CreateEnvelopeBody(publicationId, internalContent, topics));
+        return CreateMessage(publicationId, payload, topics);
+    }
+
+    public static PublicationMessageEnvelope CreatePublicationMessage(InternalMessageContent messageContent, IReadOnlyList<string> topics)
+    {
+        Guid publicationId = Guid.NewGuid();
+        BinaryData payload = BinaryData.FromBytes(BrokerMessageContentAdapter.CreateEnvelopeBody(publicationId, messageContent, topics));
         return CreateMessage(publicationId, payload, topics);
     }
 
@@ -54,30 +78,4 @@ public static class PublicationMessageFactory
         return new PublicationMessageEnvelope(publicationId, message, deduplicatedTopics);
     }
 
-    private static byte[] CreatePublicationEnvelopeBody(Guid publicationId, BinaryData messageContent, IReadOnlyList<string> topics)
-    {
-        using MemoryStream stream = new();
-        using (Utf8JsonWriter writer = new(stream))
-        {
-            writer.WriteStartObject();
-            writer.WriteString("messageId", publicationId.ToString("D"));
-            writer.WritePropertyName("messageContent");
-            using (JsonDocument messageContentDocument = JsonDocument.Parse(messageContent))
-            {
-                messageContentDocument.RootElement.WriteTo(writer);
-            }
-
-            writer.WritePropertyName("topics");
-            writer.WriteStartArray();
-            foreach (string topic in TopicSelectionRules.DeduplicateTopics(topics))
-            {
-                writer.WriteStringValue(topic);
-            }
-
-            writer.WriteEndArray();
-            writer.WriteEndObject();
-        }
-
-        return stream.ToArray();
-    }
 }

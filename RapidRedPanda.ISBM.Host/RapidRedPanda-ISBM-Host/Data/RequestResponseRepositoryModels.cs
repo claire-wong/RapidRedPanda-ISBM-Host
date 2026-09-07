@@ -1,13 +1,19 @@
 namespace RapidRedPanda.ISBM.Host.Data;
 
+public sealed record PersistedMessageContent(
+    string LegacyMessageContent,
+    string? MediaType,
+    byte[]? Payload,
+    string? PayloadKind,
+    string? ContentEncoding);
+
 public sealed record RequestResponseCreateData(
     Guid MessageId,
     Guid RequestMessageId,
     Guid ConsumerRequestSessionId,
     Guid ProviderRequestSessionId,
     Guid ChannelId,
-    string MessageContent,
-    string? MediaType,
+    PersistedMessageContent MessageContent,
     DateTime CreatedUtc);
 
 public sealed record RequestResponseData(
@@ -16,8 +22,7 @@ public sealed record RequestResponseData(
     Guid RequestMessageId,
     Guid ConsumerRequestSessionId,
     Guid ChannelId,
-    string MessageContent,
-    string? MediaType);
+    PersistedMessageContent MessageContent);
 
 public enum RequestResponseRepositoryFailureKind
 {

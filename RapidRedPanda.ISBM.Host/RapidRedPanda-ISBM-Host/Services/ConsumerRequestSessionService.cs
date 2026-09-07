@@ -1,4 +1,5 @@
 using RapidRedPanda.ISBM.Host.Data;
+using RapidRedPanda.ISBM.Host.Messaging;
 using RapidRedPanda.ISBM.Host.Validation;
 using System.Xml;
 
@@ -18,8 +19,7 @@ public interface IConsumerRequestSessionService
     Task<PostRequestResult> PostRequestAsync(
         string sessionId,
         IReadOnlyList<string?>? topics,
-        BinaryData messageContent,
-        string? mediaType,
+        InternalMessageContent messageContent,
         string? expiry,
         CancellationToken cancellationToken);
 
@@ -144,7 +144,7 @@ public enum ReadResponseFailureKind
 public sealed record ReadResponseData(
     Guid RequestMessageId,
     Guid MessageId,
-    string MessageContent);
+    InternalMessageContent MessageContent);
 
 public sealed record ReadResponseResult(
     bool Succeeded,
@@ -282,13 +282,12 @@ public sealed class ConsumerRequestSessionService : IConsumerRequestSessionServi
     public async Task<PostRequestResult> PostRequestAsync(
         string sessionId,
         IReadOnlyList<string?>? topics,
-        BinaryData messageContent,
-        string? mediaType,
+        InternalMessageContent messageContent,
         string? expiry,
         CancellationToken cancellationToken)
     {
-        if (!TryValidateTopics(topics, out IReadOnlyList<string>? validatedTopics) ||
-            !TryValidateMediaType(mediaType) ||
+        if (messageContent is null ||
+            !TryValidateTopics(topics, out IReadOnlyList<string>? validatedTopics) ||
             !TryParseExpiry(expiry, out TimeSpan? timeToLive))
         {
             return PostRequestResult.Failure(PostRequestFailureKind.ParameterFault);
@@ -327,7 +326,7 @@ public sealed class ConsumerRequestSessionService : IConsumerRequestSessionServi
         try
         {
             envelope = PublicationMessageFactory.CreatePublicationMessage(messageContent, validatedTopics!);
-            envelope.Message.ContentType = mediaType;
+            envelope.Message.ContentType = messageContent.MediaType;
             envelope.Message.ApplicationProperties["isbmMessageKind"] = "Request";
             envelope.Message.ApplicationProperties["isbmConsumerRequestSessionId"] = session.SessionId.ToString("D");
             if (timeToLive is TimeSpan parsedTimeToLive)
@@ -457,7 +456,13 @@ public sealed class ConsumerRequestSessionService : IConsumerRequestSessionServi
 
         if (readResult.Succeeded && readResult.HasResponse && readResult.Response is RequestResponseData response)
         {
-            return ReadResponseResult.Success(new ReadResponseData(response.RequestMessageId, response.MessageId, response.MessageContent));
+            if (!SqlMessageContentAdapter.TryFromSql(response.MessageContent, out InternalMessageContent? messageContent))
+            {
+                _logger.LogError("Stored response message content was not a valid MessageContent value. RequestMessageId: {RequestMessageId}. MessageId: {MessageId}.", response.RequestMessageId, response.MessageId);
+                return ReadResponseResult.Failure(ReadResponseFailureKind.OperationFault);
+            }
+
+            return ReadResponseResult.Success(new ReadResponseData(response.RequestMessageId, response.MessageId, messageContent!));
         }
 
         if (readResult.Succeeded)
@@ -624,11 +629,6 @@ public sealed class ConsumerRequestSessionService : IConsumerRequestSessionServi
         {
             return false;
         }
-    }
-
-    private static bool TryValidateMediaType(string? mediaType)
-    {
-        return mediaType is null || !string.IsNullOrWhiteSpace(mediaType);
     }
 
     private enum ConsumerRequestSessionLookupFailureKind

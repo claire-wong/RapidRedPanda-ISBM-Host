@@ -1,4 +1,5 @@
 using RapidRedPanda.ISBM.Host.Data;
+using RapidRedPanda.ISBM.Host.Messaging;
 using RapidRedPanda.ISBM.Host.Validation;
 using System.Xml;
 
@@ -18,8 +19,7 @@ public interface IProviderPublicationSessionService
     Task<PostPublicationResult> PostPublicationAsync(
         string sessionId,
         IReadOnlyList<string?>? topics,
-        BinaryData messageContent,
-        string? mediaType,
+        InternalMessageContent messageContent,
         string? expiry,
         CancellationToken cancellationToken);
 
@@ -252,8 +252,7 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
     public async Task<PostPublicationResult> PostPublicationAsync(
         string sessionId,
         IReadOnlyList<string?>? topics,
-        BinaryData messageContent,
-        string? mediaType,
+        InternalMessageContent messageContent,
         string? expiry,
         CancellationToken cancellationToken)
     {
@@ -262,8 +261,8 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
             return PostPublicationResult.Failure(PostPublicationFailureKind.ParameterFault);
         }
 
-        if (!TryValidateTopics(topics, out IReadOnlyList<string>? validatedTopics) ||
-            !TryValidateMediaType(mediaType) ||
+        if (messageContent is null ||
+            !TryValidateTopics(topics, out IReadOnlyList<string>? validatedTopics) ||
             !TryParseExpiry(expiry, out TimeSpan? timeToLive))
         {
             return PostPublicationResult.Failure(PostPublicationFailureKind.ParameterFault);
@@ -312,7 +311,7 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
         try
         {
             envelope = PublicationMessageFactory.CreatePublicationMessage(messageContent, validatedTopics!);
-            envelope.Message.ContentType = mediaType;
+            envelope.Message.ContentType = messageContent.MediaType;
             if (timeToLive is TimeSpan parsedTimeToLive)
             {
                 envelope.Message.TimeToLive = parsedTimeToLive;
@@ -498,11 +497,6 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
         {
             return false;
         }
-    }
-
-    private static bool TryValidateMediaType(string? mediaType)
-    {
-        return mediaType is null || !string.IsNullOrWhiteSpace(mediaType);
     }
 
     private sealed class NullProviderPublicationRepository : IProviderPublicationRepository

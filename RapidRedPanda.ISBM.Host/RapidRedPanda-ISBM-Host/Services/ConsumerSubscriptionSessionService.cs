@@ -1,7 +1,7 @@
 using Azure;
 using RapidRedPanda.ISBM.Host.Data;
+using RapidRedPanda.ISBM.Host.Messaging;
 using RapidRedPanda.ISBM.Host.Validation;
-using System.Text.Json;
 
 namespace RapidRedPanda.ISBM.Host.Services;
 
@@ -82,7 +82,7 @@ public enum ReadPublicationFailureKind
 public sealed record ReadPublicationData(
     Guid MessageId,
     IReadOnlyList<string> Topics,
-    string MessageContent);
+    InternalMessageContent MessageContent);
 
 public sealed record ReadPublicationResult(
     bool Succeeded,
@@ -579,7 +579,7 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
         ConsumerSubscriptionSessionData session,
         TransportPublication publication)
     {
-        if (!TryReadMessageContent(publication, out string? messageContent))
+        if (!BrokerMessageContentAdapter.TryReadMessageContent(publication, out InternalMessageContent? messageContent))
         {
             _logger.LogError(
                 "Publication broker message body did not contain a valid messageContent envelope. SessionId: {SessionId}. PublicationId: {PublicationId}.",
@@ -621,33 +621,6 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
         }
 
         return GetOpenConsumerSessionResult.Success(session);
-    }
-
-    private static bool TryReadMessageContent(TransportPublication publication, out string? messageContent)
-    {
-        messageContent = null;
-
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(publication.Content);
-            JsonElement root = document.RootElement;
-            if (root.ValueKind is JsonValueKind.Object &&
-                root.TryGetProperty("messageId", out JsonElement messageIdElement) &&
-                messageIdElement.ValueKind is JsonValueKind.String &&
-                Guid.TryParse(messageIdElement.GetString(), out Guid bodyMessageId) &&
-                bodyMessageId == publication.PublicationId &&
-                root.TryGetProperty("messageContent", out JsonElement messageContentElement))
-            {
-                messageContent = messageContentElement.GetRawText();
-                return true;
-            }
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-
-        return false;
     }
 
     private enum OpenConsumerSessionFailureKind
