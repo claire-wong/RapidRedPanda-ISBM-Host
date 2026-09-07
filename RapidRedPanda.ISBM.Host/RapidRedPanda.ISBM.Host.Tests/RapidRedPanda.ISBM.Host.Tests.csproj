@@ -27,7 +27,10 @@
     <Compile Include="SqlMessageContentAdapterTests.cs" />
     <Compile Include="MessageContentSemanticsControllerTests.cs" />
     <Compile Include="ProviderConsumerPublicationRoundTripTests.cs" />
+    <Compile Include="ProviderConsumerRequestRoundTripTests.cs" />
+    <Compile Include="ProviderConsumerResponseRoundTripTests.cs" />
     <Compile Include="ProviderPublicationServiceControllerTests.cs" />
+    <Compile Include="RequestResponseMessageContentSqlScriptTests.cs" />
   </ItemGroup>
 
   <ItemGroup>
