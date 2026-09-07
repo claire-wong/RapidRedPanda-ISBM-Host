@@ -31,6 +31,13 @@
     <Compile Include="ProviderConsumerResponseRoundTripTests.cs" />
     <Compile Include="ProviderPublicationServiceControllerTests.cs" />
     <Compile Include="RequestResponseMessageContentSqlScriptTests.cs" />
+    <Compile Include="ConsumerSubscriptionSessionServiceTests.cs" />
+    <Compile Include="PublicationNotificationClientTests.cs" />
+    <Compile Include="PublicationNotificationDispatcherTests.cs" />
+    <Compile Include="PublicationNotificationUriBuilderTests.cs" />
+    <Compile Include="SessionCloseServiceTests.cs" />
+    <Compile Include="SqlConsumerRequestRepositoryTests.cs" />
+    <Compile Include="SqlPublicationNotificationRepositoryTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

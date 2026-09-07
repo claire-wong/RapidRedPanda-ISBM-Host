@@ -18,7 +18,7 @@ public sealed class ProviderConsumerRequestRoundTripTests
         const string azureTopicName = "isbm-request-topic";
         FakeChannelRepository channelRepository = new(channelId, azureTopicName);
         FakeConsumerRequestSessionRepository consumerSessionRepository = new(consumerSessionId, channelId);
-        FakeSubscriptionSessionRepository providerSessionRepository = new(providerSessionId, channelId, azureTopicName);
+        FakeProviderRequestSessionRepository providerSessionRepository = new(providerSessionId, channelId, azureTopicName);
         FakeConsumerRequestRepository requestRepository = new();
         CapturingPublicationTransport publicationTransport = new();
         ConsumerRequestSessionService consumerService = new(
@@ -147,21 +147,20 @@ public sealed class ProviderConsumerRequestRoundTripTests
         public Task<CloseConsumerRequestSessionResult> CloseConsumerRequestSessionAsync(Guid sessionId, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
-    private sealed class FakeSubscriptionSessionRepository(Guid sessionId, Guid channelId, string azureTopicName) : ISubscriptionSessionRepository
+    private sealed class FakeProviderRequestSessionRepository(Guid sessionId, Guid channelId, string azureTopicName) : IProviderRequestSessionRepository
     {
-        public Task<InsertSubscriptionSessionResult> InsertConsumerSubscriptionSessionAsync(ConsumerSubscriptionSessionCreateData session, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<InsertProviderRequestSessionResult> InsertProviderRequestSessionAsync(ProviderRequestSessionCreateData session, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task<GetSubscriptionSessionResult> GetSubscriptionSessionAsync(Guid requestedSessionId, CancellationToken cancellationToken)
+        public Task<GetProviderRequestSessionResult> GetProviderRequestSessionAsync(Guid requestedSessionId, CancellationToken cancellationToken)
         {
             if (requestedSessionId != sessionId)
             {
-                return Task.FromResult(GetSubscriptionSessionResult.Failure(GetSubscriptionSessionFailureKind.NotFound, "missing"));
+                return Task.FromResult(GetProviderRequestSessionResult.Failure(GetProviderRequestSessionFailureKind.NotFound, "missing"));
             }
 
-            return Task.FromResult(GetSubscriptionSessionResult.Success(new ConsumerSubscriptionSessionData(
+            return Task.FromResult(GetProviderRequestSessionResult.Success(new ProviderRequestSessionData(
                 sessionId,
                 channelId,
-                SubscriptionSessionTypes.ProviderRequestSubscription,
                 SubscriptionSessionStates.Open,
                 azureTopicName,
                 $"isbm-prs-{sessionId:N}",
@@ -171,7 +170,7 @@ public sealed class ProviderConsumerRequestRoundTripTests
                 null)));
         }
 
-        public Task<CloseSubscriptionSessionResult> CloseSubscriptionSessionAsync(Guid sessionId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<CloseProviderRequestSessionRepositoryResult> CloseProviderRequestSessionAsync(Guid sessionId, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class FakeConsumerRequestRepository : IConsumerRequestRepository

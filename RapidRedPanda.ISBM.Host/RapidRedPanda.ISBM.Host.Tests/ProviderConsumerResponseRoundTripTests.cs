@@ -19,7 +19,7 @@ public sealed class ProviderConsumerResponseRoundTripTests
         InMemoryRequestResponseRepository responseRepository = new(consumerSessionId);
         ProviderRequestSessionService providerService = new(
             channelRepository,
-            new FakeSubscriptionSessionRepository(providerSessionId, channelId),
+            new FakeProviderRequestSessionRepository(providerSessionId, channelId),
             new UnusedConsumerRequestRepository(),
             responseRepository,
             new UnusedSubscriptionTransport(),
@@ -156,21 +156,20 @@ public sealed class ProviderConsumerResponseRoundTripTests
         public Task<SecurityTokenMutationResult> RemoveSecurityTokensAsync(string channelUri, IReadOnlyList<ChannelCreateToken> tokens, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
-    private sealed class FakeSubscriptionSessionRepository(Guid sessionId, Guid channelId) : ISubscriptionSessionRepository
+    private sealed class FakeProviderRequestSessionRepository(Guid sessionId, Guid channelId) : IProviderRequestSessionRepository
     {
-        public Task<InsertSubscriptionSessionResult> InsertConsumerSubscriptionSessionAsync(ConsumerSubscriptionSessionCreateData session, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<InsertProviderRequestSessionResult> InsertProviderRequestSessionAsync(ProviderRequestSessionCreateData session, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task<GetSubscriptionSessionResult> GetSubscriptionSessionAsync(Guid requestedSessionId, CancellationToken cancellationToken)
+        public Task<GetProviderRequestSessionResult> GetProviderRequestSessionAsync(Guid requestedSessionId, CancellationToken cancellationToken)
         {
             if (requestedSessionId != sessionId)
             {
-                return Task.FromResult(GetSubscriptionSessionResult.Failure(GetSubscriptionSessionFailureKind.NotFound, "missing"));
+                return Task.FromResult(GetProviderRequestSessionResult.Failure(GetProviderRequestSessionFailureKind.NotFound, "missing"));
             }
 
-            return Task.FromResult(GetSubscriptionSessionResult.Success(new ConsumerSubscriptionSessionData(
+            return Task.FromResult(GetProviderRequestSessionResult.Success(new ProviderRequestSessionData(
                 sessionId,
                 channelId,
-                SubscriptionSessionTypes.ProviderRequestSubscription,
                 SubscriptionSessionStates.Open,
                 "isbm-request-topic",
                 $"isbm-prs-{sessionId:N}",
@@ -180,7 +179,7 @@ public sealed class ProviderConsumerResponseRoundTripTests
                 null)));
         }
 
-        public Task<CloseSubscriptionSessionResult> CloseSubscriptionSessionAsync(Guid sessionId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<CloseProviderRequestSessionRepositoryResult> CloseProviderRequestSessionAsync(Guid sessionId, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class FakeConsumerRequestSessionRepository(Guid sessionId, Guid channelId) : IConsumerRequestSessionRepository

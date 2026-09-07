@@ -350,6 +350,7 @@ public sealed class MessageContentSemanticsControllerTests
 
         public Task<OpenConsumerRequestSessionResult> OpenConsumerRequestSessionAsync(
             string channelId,
+            string? listenerUrl,
             ChannelCredentials? credentials,
             CancellationToken cancellationToken)
         {
@@ -409,6 +410,7 @@ public sealed class MessageContentSemanticsControllerTests
         public Task<OpenProviderRequestSessionResult> OpenProviderRequestSessionAsync(
             string channelId,
             IReadOnlyList<string> topics,
+            string? listenerUrl,
             ChannelCredentials? credentials,
             CancellationToken cancellationToken)
         {
