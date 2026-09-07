@@ -12,6 +12,8 @@ public sealed class BrokerMessageContentAdapterTests
         yield return [InternalMessageContent.FromJson(BinaryData.FromString("""{"speed":1200}""")), """{"content":{"speed":1200}}"""];
         yield return [InternalMessageContent.FromString("<speed>1200</speed>", "application/xml"), """{"mediaType":"application/xml","content":"<speed>1200</speed>"}"""];
         yield return [InternalMessageContent.FromString("speed=1200", "text/plain"), """{"mediaType":"text/plain","content":"speed=1200"}"""];
+        yield return [InternalMessageContent.FromBinary(BinaryData.FromBytes([0, 1, 2, 3, 4]), "application/octet-stream", "base64"), """{"mediaType":"application/octet-stream","contentEncoding":"base64","content":"AAECAwQ="}"""];
+        yield return [InternalMessageContent.FromBinary(BinaryData.FromBytes([0, 1, 2, 3, 4]), null, "base64"), """{"contentEncoding":"base64","content":"AAECAwQ="}"""];
     }
 
     [Theory]
@@ -54,8 +56,18 @@ public sealed class BrokerMessageContentAdapterTests
         Assert.Equal(expected.Kind, actual.Kind);
         Assert.Equal(expected.MediaType, actual.MediaType);
         Assert.Equal(expected.ContentEncoding, actual.ContentEncoding);
-        Assert.True(JsonNode.DeepEquals(
-            JsonNode.Parse(expectedMessageContent),
-            JsonNode.Parse(RestMessageContentMapper.ToRestJsonString(actual))));
+        if (expected.Kind is InternalMessageContentKind.Binary)
+        {
+            Assert.Equal(expected.Payload.ToArray(), actual.Payload.ToArray());
+            Assert.True(JsonNode.DeepEquals(
+                JsonNode.Parse(expectedMessageContent),
+                JsonNode.Parse(RestMessageContentMapper.ToRestJsonString(actual))));
+        }
+        else
+        {
+            Assert.True(JsonNode.DeepEquals(
+                JsonNode.Parse(expectedMessageContent),
+                JsonNode.Parse(RestMessageContentMapper.ToRestJsonString(actual))));
+        }
     }
 }

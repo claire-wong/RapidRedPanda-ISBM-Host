@@ -4,6 +4,8 @@ namespace RapidRedPanda.ISBM.Host.Messaging;
 
 internal static class RestMessageContentMapper
 {
+    private const string Base64ContentEncoding = "base64";
+
     public static bool TryFromRest(JsonElement messageContent, out InternalMessageContent? content)
     {
         content = null;
@@ -19,30 +21,55 @@ internal static class RestMessageContentMapper
             return false;
         }
 
-        if (contentEncoding is not null)
-        {
-            return false;
-        }
-
         try
         {
-            content = contentElement.ValueKind switch
+            if (contentElement.ValueKind is JsonValueKind.Object)
             {
-                JsonValueKind.Object when mediaType is null =>
-                    InternalMessageContent.FromJson(BinaryData.FromString(contentElement.GetRawText())),
+                if (mediaType is not null || contentEncoding is not null)
+                {
+                    return false;
+                }
 
-                JsonValueKind.String when mediaType is not null =>
-                    InternalMessageContent.FromString(contentElement.GetString()!, mediaType),
+                content = InternalMessageContent.FromJson(BinaryData.FromString(contentElement.GetRawText()));
+                return true;
+            }
 
-                _ => null
-            };
+            if (contentElement.ValueKind is JsonValueKind.String && contentEncoding is null)
+            {
+                if (mediaType is null)
+                {
+                    return false;
+                }
+
+                content = InternalMessageContent.FromString(contentElement.GetString()!, mediaType);
+                return true;
+            }
+
+            if (contentElement.ValueKind is JsonValueKind.String && contentEncoding is not null)
+            {
+                if (!IsSupportedBinaryEncoding(contentEncoding))
+                {
+                    return false;
+                }
+
+                byte[] decodedPayload = Convert.FromBase64String(contentElement.GetString()!);
+                content = InternalMessageContent.FromBinary(
+                    BinaryData.FromBytes(decodedPayload),
+                    mediaType,
+                    Base64ContentEncoding);
+                return true;
+            }
         }
         catch (ArgumentException)
         {
             return false;
         }
+        catch (FormatException)
+        {
+            return false;
+        }
 
-        return content is not null;
+        return false;
     }
 
     public static JsonElement ToRestJsonElement(InternalMessageContent content)
@@ -92,7 +119,7 @@ internal static class RestMessageContentMapper
                     writer.WriteString("mediaType", content.MediaType);
                 }
 
-                writer.WriteString("contentEncoding", content.ContentEncoding);
+                writer.WriteString("contentEncoding", Base64ContentEncoding);
                 writer.WriteString("content", Convert.ToBase64String(content.Payload.ToArray()));
                 break;
 
@@ -119,5 +146,10 @@ internal static class RestMessageContentMapper
 
         value = property.GetString();
         return !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static bool IsSupportedBinaryEncoding(string contentEncoding)
+    {
+        return string.Equals(contentEncoding, Base64ContentEncoding, StringComparison.OrdinalIgnoreCase);
     }
 }

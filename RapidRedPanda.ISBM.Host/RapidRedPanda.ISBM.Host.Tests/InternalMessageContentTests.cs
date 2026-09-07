@@ -57,6 +57,34 @@ public sealed class InternalMessageContentTests
         Assert.Equal("base64", content.ContentEncoding);
     }
 
+    [Fact]
+    public void FromBinary_WithoutMediaType_CreatesBinaryContentWithNullMediaType()
+    {
+        InternalMessageContent content = InternalMessageContent.FromBinary(
+            BinaryData.FromBytes([0, 1, 2, 3]),
+            null,
+            "base64");
+
+        Assert.Equal(InternalMessageContentKind.Binary, content.Kind);
+        Assert.Equal([0, 1, 2, 3], content.Payload.ToArray());
+        Assert.Null(content.MediaType);
+        Assert.Equal("base64", content.ContentEncoding);
+    }
+
+    [Fact]
+    public void FromBinary_EmptyPayload_CreatesBinaryContentWithEmptyDecodedPayload()
+    {
+        InternalMessageContent content = InternalMessageContent.FromBinary(
+            BinaryData.FromBytes([]),
+            null,
+            "base64");
+
+        Assert.Equal(InternalMessageContentKind.Binary, content.Kind);
+        Assert.Empty(content.Payload.ToArray());
+        Assert.Null(content.MediaType);
+        Assert.Equal("base64", content.ContentEncoding);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
