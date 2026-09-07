@@ -456,7 +456,7 @@ public sealed class ConsumerRequestSessionService : IConsumerRequestSessionServi
 
         if (readResult.Succeeded && readResult.HasResponse && readResult.Response is RequestResponseData response)
         {
-            if (!SqlMessageContentAdapter.TryFromSql(response.MessageContent, response.MediaType, out InternalMessageContent? messageContent))
+            if (!SqlMessageContentAdapter.TryFromSql(response.MessageContent, out InternalMessageContent? messageContent))
             {
                 _logger.LogError("Stored response message content was not a valid MessageContent value. RequestMessageId: {RequestMessageId}. MessageId: {MessageId}.", response.RequestMessageId, response.MessageId);
                 return ReadResponseResult.Failure(ReadResponseFailureKind.OperationFault);

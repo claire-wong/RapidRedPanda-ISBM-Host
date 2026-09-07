@@ -75,6 +75,9 @@ public sealed class SqlRequestResponseRepository : IRequestResponseRepository
                     ChannelId,
                     MessageContent,
                     MediaType,
+                    Payload,
+                    PayloadKind,
+                    ContentEncoding,
                     CreatedUtc
                 )
                 values
@@ -86,6 +89,9 @@ public sealed class SqlRequestResponseRepository : IRequestResponseRepository
                     @ChannelId,
                     @MessageContent,
                     @MediaType,
+                    @Payload,
+                    @PayloadKind,
+                    @ContentEncoding,
                     @CreatedUtc
                 );
                 """;
@@ -96,8 +102,11 @@ public sealed class SqlRequestResponseRepository : IRequestResponseRepository
             command.Parameters.Add("@ConsumerRequestSessionId", SqlDbType.UniqueIdentifier).Value = response.ConsumerRequestSessionId;
             command.Parameters.Add("@ProviderRequestSessionId", SqlDbType.UniqueIdentifier).Value = response.ProviderRequestSessionId;
             command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = response.ChannelId;
-            command.Parameters.Add("@MessageContent", SqlDbType.NVarChar, -1).Value = response.MessageContent;
-            command.Parameters.Add("@MediaType", SqlDbType.NVarChar, 256).Value = (object?)response.MediaType ?? DBNull.Value;
+            command.Parameters.Add("@MessageContent", SqlDbType.NVarChar, -1).Value = response.MessageContent.LegacyMessageContent;
+            command.Parameters.Add("@MediaType", SqlDbType.NVarChar, 256).Value = (object?)response.MessageContent.MediaType ?? DBNull.Value;
+            command.Parameters.Add("@Payload", SqlDbType.VarBinary, -1).Value = (object?)response.MessageContent.Payload ?? DBNull.Value;
+            command.Parameters.Add("@PayloadKind", SqlDbType.NVarChar, 16).Value = (object?)response.MessageContent.PayloadKind ?? DBNull.Value;
+            command.Parameters.Add("@ContentEncoding", SqlDbType.NVarChar, 64).Value = (object?)response.MessageContent.ContentEncoding ?? DBNull.Value;
             command.Parameters.Add("@CreatedUtc", SqlDbType.DateTime2).Value = response.CreatedUtc;
             await command.ExecuteNonQueryAsync(cancellationToken);
 
@@ -298,7 +307,10 @@ public sealed class SqlRequestResponseRepository : IRequestResponseRepository
                    response.ConsumerRequestSessionId,
                    response.ChannelId,
                    response.MessageContent,
-                   response.MediaType
+                   response.MediaType,
+                   response.Payload,
+                   response.PayloadKind,
+                   response.ContentEncoding
             from dbo.OutstandingRequestResponses outstanding with (updlock, holdlock)
             inner join dbo.RequestResponses response
                     on response.RequestResponseId = outstanding.RequestResponseId
@@ -329,7 +341,10 @@ public sealed class SqlRequestResponseRepository : IRequestResponseRepository
                    response.ConsumerRequestSessionId,
                    response.ChannelId,
                    response.MessageContent,
-                   response.MediaType
+                   response.MediaType,
+                   response.Payload,
+                   response.PayloadKind,
+                   response.ContentEncoding
             from dbo.RequestResponses response with (updlock, holdlock)
             inner join dbo.ConsumerRequests request
                     on request.MessageId = response.RequestMessageId
@@ -370,8 +385,12 @@ public sealed class SqlRequestResponseRepository : IRequestResponseRepository
             reader.GetGuid(2),
             reader.GetGuid(3),
             reader.GetGuid(4),
-            reader.GetString(5),
-            reader.IsDBNull(6) ? null : reader.GetString(6));
+            new PersistedMessageContent(
+                reader.GetString(5),
+                reader.IsDBNull(6) ? null : reader.GetString(6),
+                reader.IsDBNull(7) ? null : (byte[])reader.GetValue(7),
+                reader.IsDBNull(8) ? null : reader.GetString(8),
+                reader.IsDBNull(9) ? null : reader.GetString(9)));
     }
 
     private static async Task RollbackQuietlyAsync(SqlTransaction transaction, CancellationToken cancellationToken)

@@ -491,7 +491,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
         }
 
         Guid responseMessageId = Guid.NewGuid();
-        SqlMessageContent sqlMessageContent = SqlMessageContentAdapter.ToSql(messageContent);
+        PersistedMessageContent sqlMessageContent = SqlMessageContentAdapter.ToSql(messageContent);
         RequestResponseRepositoryResult insertResult = await _responseRepository.InsertResponseAsync(
             new RequestResponseCreateData(
                 responseMessageId,
@@ -499,8 +499,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
                 consumerRequestSessionId,
                 session.SessionId,
                 session.ChannelId,
-                sqlMessageContent.MessageContent,
-                sqlMessageContent.MediaType,
+                sqlMessageContent,
                 DateTime.UtcNow),
             cancellationToken);
 
