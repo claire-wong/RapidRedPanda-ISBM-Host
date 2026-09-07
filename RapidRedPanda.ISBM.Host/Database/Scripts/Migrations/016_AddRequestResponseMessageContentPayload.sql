@@ -51,9 +51,10 @@ begin try
           and name = N'CK_RequestResponses_MessageContentPayloadKind'
     )
     begin
-        alter table dbo.RequestResponses
-        add constraint CK_RequestResponses_MessageContentPayloadKind
-            check (PayloadKind is null or PayloadKind in (N'Json', N'String', N'Binary'));
+        exec sys.sp_executesql N'
+            alter table dbo.RequestResponses
+            add constraint CK_RequestResponses_MessageContentPayloadKind
+                check (PayloadKind is null or PayloadKind in (N''Json'', N''String'', N''Binary''));';
     end;
 
     if not exists
@@ -64,36 +65,37 @@ begin try
           and name = N'CK_RequestResponses_MessageContentPayloadShape'
     )
     begin
-        alter table dbo.RequestResponses
-        add constraint CK_RequestResponses_MessageContentPayloadShape
-            check
-            (
+        exec sys.sp_executesql N'
+            alter table dbo.RequestResponses
+            add constraint CK_RequestResponses_MessageContentPayloadShape
+                check
                 (
-                    Payload is null
-                    and PayloadKind is null
-                    and ContentEncoding is null
-                )
-                or
-                (
-                    Payload is not null
-                    and PayloadKind = N'Json'
-                    and MediaType is null
-                    and ContentEncoding is null
-                )
-                or
-                (
-                    Payload is not null
-                    and PayloadKind = N'String'
-                    and MediaType is not null
-                    and ContentEncoding is null
-                )
-                or
-                (
-                    Payload is not null
-                    and PayloadKind = N'Binary'
-                    and ContentEncoding is not null
-                )
-            );
+                    (
+                        Payload is null
+                        and PayloadKind is null
+                        and ContentEncoding is null
+                    )
+                    or
+                    (
+                        Payload is not null
+                        and PayloadKind = N''Json''
+                        and MediaType is null
+                        and ContentEncoding is null
+                    )
+                    or
+                    (
+                        Payload is not null
+                        and PayloadKind = N''String''
+                        and MediaType is not null
+                        and ContentEncoding is null
+                    )
+                    or
+                    (
+                        Payload is not null
+                        and PayloadKind = N''Binary''
+                        and ContentEncoding is not null
+                    )
+                );';
     end;
 
     insert dbo.SchemaVersions
