@@ -38,6 +38,8 @@
     <Compile Include="SessionCloseServiceTests.cs" />
     <Compile Include="SqlConsumerRequestRepositoryTests.cs" />
     <Compile Include="SqlPublicationNotificationRepositoryTests.cs" />
+    <Compile Include="UsernameTokenParserTests.cs" />
+    <Compile Include="ChannelManagementControllerTests.cs" />
   </ItemGroup>
 
   <ItemGroup>
