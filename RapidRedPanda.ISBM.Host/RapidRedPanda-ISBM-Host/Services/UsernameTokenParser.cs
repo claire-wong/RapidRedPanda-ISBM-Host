@@ -75,7 +75,10 @@ public sealed class UsernameTokenParser : IUsernameTokenParser
 
     private UsernameTokenInput ParseFlatUsernameToken(SecurityTokenRequest tokenElement)
     {
-        string tokenType = ReadRequiredString(tokenElement.Type, "type");
+        string tokenType = tokenElement.Type is null
+            ? UsernameTokenType
+            : ReadRequiredString(tokenElement.Type, "type");
+
         if (!string.Equals(tokenType, UsernameTokenType, StringComparison.Ordinal))
         {
             throw new SecurityTokenValidationException("Only UsernameToken security tokens are supported in phase one.");
