@@ -51,7 +51,7 @@ public sealed class ProviderRequestServiceController : Controller
         if (request?.Topics is null ||
             request.Topics.Count == 0 ||
             request.Topics.Any(string.IsNullOrEmpty) ||
-            request.FilterExpressions is { Count: > 0 })
+            !FilterExpressionJson.TrySerializeValid(request.FilterExpressions, out string? filterExpressionsJson))
         {
             return BadRequest(new FaultResponse("ParameterFault"));
         }
@@ -63,6 +63,7 @@ public sealed class ProviderRequestServiceController : Controller
                 channelId,
                 request.Topics,
                 request.ListenerUrl,
+                filterExpressionsJson,
                 TryReadBasicCredentials(),
                 cancellationToken);
         }

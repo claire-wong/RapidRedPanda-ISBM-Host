@@ -7,7 +7,8 @@ public sealed record ProviderRequestSessionCreateData(
     string AzureSubscriptionName,
     IReadOnlyList<string> RequestedTopics,
     string? AuthenticatedTokenUsername,
-    string? ListenerUrl = null);
+    string? ListenerUrl = null,
+    string? FilterExpressionsJson = null);
 
 public sealed record ProviderRequestSessionData(
     Guid SessionId,
@@ -19,7 +20,8 @@ public sealed record ProviderRequestSessionData(
     string? AuthenticatedTokenUsername,
     DateTime OpenedUtc,
     DateTime? ClosedUtc,
-    string? ListenerUrl = null);
+    string? ListenerUrl = null,
+    string? FilterExpressionsJson = null);
 
 public enum InsertProviderRequestSessionFailureKind
 {

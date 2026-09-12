@@ -71,7 +71,7 @@ public sealed class OpenSubscriptionSessionRequest
     public string? ListenerUrl { get; init; }
 
     [JsonPropertyName("filterExpressions")]
-    public IReadOnlyList<JsonElement>? FilterExpressions { get; init; }
+    public IReadOnlyList<FilterExpression?>? FilterExpressions { get; init; }
 }
 
 public sealed class OpenProviderRequestSessionRequest
@@ -83,7 +83,90 @@ public sealed class OpenProviderRequestSessionRequest
     public string? ListenerUrl { get; init; }
 
     [JsonPropertyName("filterExpressions")]
-    public IReadOnlyList<JsonElement>? FilterExpressions { get; init; }
+    public IReadOnlyList<FilterExpression?>? FilterExpressions { get; init; }
+}
+
+public sealed class FilterExpression
+{
+    [JsonPropertyName("applicableMediaTypes")]
+    public IReadOnlyList<string?>? ApplicableMediaTypes { get; init; }
+
+    [JsonPropertyName("expressionString")]
+    public FilterExpressionString? ExpressionString { get; init; }
+
+    [JsonPropertyName("namespaces")]
+    public IReadOnlyList<FilterExpressionNamespace?>? Namespaces { get; init; }
+}
+
+public sealed class FilterExpressionString
+{
+    [JsonPropertyName("expression")]
+    public string? Expression { get; init; }
+
+    [JsonPropertyName("language")]
+    public string? Language { get; init; }
+
+    [JsonPropertyName("languageVersion")]
+    public string? LanguageVersion { get; init; }
+}
+
+public sealed class FilterExpressionNamespace
+{
+    [JsonPropertyName("prefix")]
+    public string? Prefix { get; init; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
+}
+
+public static class FilterExpressionJson
+{
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
+    public static bool TrySerializeValid(
+        IReadOnlyList<FilterExpression?>? filterExpressions,
+        out string? filterExpressionsJson)
+    {
+        filterExpressionsJson = null;
+        if (filterExpressions is null || filterExpressions.Count == 0)
+        {
+            return true;
+        }
+
+        foreach (FilterExpression? filterExpression in filterExpressions)
+        {
+            if (filterExpression is null ||
+                filterExpression.ExpressionString is not FilterExpressionString expressionString ||
+                string.IsNullOrWhiteSpace(expressionString.Expression) ||
+                string.IsNullOrWhiteSpace(expressionString.Language) ||
+                HasInvalidApplicableMediaTypes(filterExpression.ApplicableMediaTypes) ||
+                HasInvalidNamespaces(filterExpression.Namespaces))
+            {
+                return false;
+            }
+        }
+
+        filterExpressionsJson = JsonSerializer.Serialize(filterExpressions, SerializerOptions);
+        return true;
+    }
+
+    private static bool HasInvalidApplicableMediaTypes(IReadOnlyList<string?>? applicableMediaTypes)
+    {
+        return applicableMediaTypes is not null &&
+            applicableMediaTypes.Any(string.IsNullOrWhiteSpace);
+    }
+
+    private static bool HasInvalidNamespaces(IReadOnlyList<FilterExpressionNamespace?>? namespaces)
+    {
+        return namespaces is not null &&
+            namespaces.Any(item =>
+                item is null ||
+                string.IsNullOrWhiteSpace(item.Prefix) ||
+                string.IsNullOrWhiteSpace(item.Name));
+    }
 }
 
 public sealed class OpenConsumerRequestSessionRequest

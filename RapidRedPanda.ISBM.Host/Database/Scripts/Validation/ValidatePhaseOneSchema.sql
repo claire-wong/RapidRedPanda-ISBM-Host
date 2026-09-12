@@ -131,6 +131,9 @@ if not exists (select 1 from dbo.SchemaVersions where VersionNumber = N'SessionN
 if not exists (select 1 from dbo.SchemaVersions where VersionNumber = N'ResponseNotifications-001')
     throw 53069, 'Validation failed: expected schema version ResponseNotifications-001 was not recorded.', 1;
 
+if not exists (select 1 from dbo.SchemaVersions where VersionNumber = N'SessionFilterExpressions-001')
+    throw 53079, 'Validation failed: expected schema version SessionFilterExpressions-001 was not recorded.', 1;
+
 if not exists (select 1 from sys.key_constraints where parent_object_id = object_id(N'dbo.Channels') and name = N'PK_Channels' and type = N'PK')
     throw 53004, 'Validation failed: PK_Channels is missing.', 1;
 
@@ -273,6 +276,50 @@ if not exists
       and is_nullable = 1
 )
     throw 53027, 'Validation failed: ConsumerSubscriptionSessions.ListenerUrl must be nullable nvarchar(2048).', 1;
+
+if not exists
+(
+    select 1
+    from sys.columns
+    where object_id = object_id(N'dbo.ConsumerSubscriptionSessions')
+      and name = N'FilterExpressionsJson'
+      and system_type_id = type_id(N'nvarchar')
+      and max_length = -1
+      and is_nullable = 1
+)
+    throw 53080, 'Validation failed: ConsumerSubscriptionSessions.FilterExpressionsJson must be nullable nvarchar(max).', 1;
+
+if not exists
+(
+    select 1
+    from sys.check_constraints
+    where parent_object_id = object_id(N'dbo.ConsumerSubscriptionSessions')
+      and name = N'CK_ConsumerSubscriptionSessions_FilterExpressionsJson'
+      and definition like N'%isjson%'
+)
+    throw 53081, 'Validation failed: ConsumerSubscriptionSessions filterExpressions JSON constraint is missing.', 1;
+
+if not exists
+(
+    select 1
+    from sys.columns
+    where object_id = object_id(N'dbo.ProviderRequestSessions')
+      and name = N'FilterExpressionsJson'
+      and system_type_id = type_id(N'nvarchar')
+      and max_length = -1
+      and is_nullable = 1
+)
+    throw 53082, 'Validation failed: ProviderRequestSessions.FilterExpressionsJson must be nullable nvarchar(max).', 1;
+
+if not exists
+(
+    select 1
+    from sys.check_constraints
+    where parent_object_id = object_id(N'dbo.ProviderRequestSessions')
+      and name = N'CK_ProviderRequestSessions_FilterExpressionsJson'
+      and definition like N'%isjson%'
+)
+    throw 53083, 'Validation failed: ProviderRequestSessions filterExpressions JSON constraint is missing.', 1;
 
 if not exists
 (

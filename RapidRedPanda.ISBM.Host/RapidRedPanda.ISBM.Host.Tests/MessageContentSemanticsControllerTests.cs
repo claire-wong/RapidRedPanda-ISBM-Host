@@ -453,6 +453,7 @@ public sealed class MessageContentSemanticsControllerTests
             string channelId,
             IReadOnlyList<string> topics,
             string? listenerUrl,
+            string? filterExpressionsJson,
             ChannelCredentials? credentials,
             CancellationToken cancellationToken)
         {

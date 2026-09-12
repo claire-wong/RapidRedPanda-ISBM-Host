@@ -162,6 +162,7 @@ begin try
         AzureSubscriptionName nvarchar(260) not null,
         AuthenticatedTokenUsername nvarchar(256) null,
         ListenerUrl nvarchar(2048) null,
+        FilterExpressionsJson nvarchar(max) null,
         OpenedUtc datetime2(7) not null
             constraint DF_ConsumerSubscriptionSessions_OpenedUtc default sysutcdatetime(),
         ClosedUtc datetime2(7) null,
@@ -181,7 +182,10 @@ begin try
             check (SessionState in (N'Open', N'Closed')),
 
         constraint CK_ConsumerSubscriptionSessions_ClosedAfterOpened
-            check (ClosedUtc is null or ClosedUtc >= OpenedUtc)
+            check (ClosedUtc is null or ClosedUtc >= OpenedUtc),
+
+        constraint CK_ConsumerSubscriptionSessions_FilterExpressionsJson
+            check (FilterExpressionsJson is null or isjson(FilterExpressionsJson) = 1)
     );
 
     create index IX_ConsumerSubscriptionSessions_ChannelId_Open
@@ -233,6 +237,7 @@ begin try
         AzureSubscriptionName nvarchar(260) not null,
         AuthenticatedTokenUsername nvarchar(256) null,
         ListenerUrl nvarchar(2048) null,
+        FilterExpressionsJson nvarchar(max) null,
         OpenedUtc datetime2(7) not null
             constraint DF_ProviderRequestSessions_OpenedUtc default sysutcdatetime(),
         ClosedUtc datetime2(7) null,
@@ -249,7 +254,10 @@ begin try
             check (SessionState in (N'Open', N'Closed')),
 
         constraint CK_ProviderRequestSessions_ClosedAfterOpened
-            check (ClosedUtc is null or ClosedUtc >= OpenedUtc)
+            check (ClosedUtc is null or ClosedUtc >= OpenedUtc),
+
+        constraint CK_ProviderRequestSessions_FilterExpressionsJson
+            check (FilterExpressionsJson is null or isjson(FilterExpressionsJson) = 1)
     );
 
     create index IX_ProviderRequestSessions_ChannelId_Open
@@ -780,6 +788,11 @@ begin try
     (
         N'ResponseNotifications-001',
         N'Adds response notification schema shape and request-message correlation.',
+        N'002_CreatePhaseOneSchema.sql'
+    ),
+    (
+        N'SessionFilterExpressions-001',
+        N'Adds nullable JSON storage for accepted session filterExpressions.',
         N'002_CreatePhaseOneSchema.sql'
     );
 

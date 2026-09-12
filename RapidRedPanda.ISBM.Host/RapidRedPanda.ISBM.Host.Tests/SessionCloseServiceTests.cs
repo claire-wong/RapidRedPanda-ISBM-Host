@@ -275,6 +275,7 @@ public sealed class SessionCloseServiceTests
             string channelId,
             IReadOnlyList<string> topics,
             string? listenerUrl,
+            string? filterExpressionsJson,
             ChannelCredentials? credentials,
             CancellationToken cancellationToken)
         {

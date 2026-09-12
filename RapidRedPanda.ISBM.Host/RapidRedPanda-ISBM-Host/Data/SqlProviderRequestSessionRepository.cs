@@ -41,6 +41,7 @@ public sealed class SqlProviderRequestSessionRepository : IProviderRequestSessio
                         AzureSubscriptionName,
                         AuthenticatedTokenUsername,
                         ListenerUrl,
+                        FilterExpressionsJson,
                         OpenedUtc
                     )
                     values
@@ -52,6 +53,7 @@ public sealed class SqlProviderRequestSessionRepository : IProviderRequestSessio
                         @AzureSubscriptionName,
                         @AuthenticatedTokenUsername,
                         @ListenerUrl,
+                        @FilterExpressionsJson,
                         @OpenedUtc
                     );
                     """;
@@ -67,6 +69,8 @@ public sealed class SqlProviderRequestSessionRepository : IProviderRequestSessio
                         (object?)session.AuthenticatedTokenUsername ?? DBNull.Value;
                     command.Parameters.Add("@ListenerUrl", SqlDbType.NVarChar, 2048).Value =
                         (object?)session.ListenerUrl ?? DBNull.Value;
+                    command.Parameters.Add("@FilterExpressionsJson", SqlDbType.NVarChar, -1).Value =
+                        (object?)session.FilterExpressionsJson ?? DBNull.Value;
                     command.Parameters.Add("@OpenedUtc", SqlDbType.DateTime2).Value = DateTime.UtcNow;
 
                     await command.ExecuteNonQueryAsync(cancellationToken);
@@ -133,7 +137,8 @@ public sealed class SqlProviderRequestSessionRepository : IProviderRequestSessio
                     AuthenticatedTokenUsername,
                     OpenedUtc,
                     ClosedUtc,
-                    ListenerUrl
+                    ListenerUrl,
+                    FilterExpressionsJson
                 from dbo.ProviderRequestSessions
                 where SessionId = @SessionId;
                 """;
@@ -159,7 +164,8 @@ public sealed class SqlProviderRequestSessionRepository : IProviderRequestSessio
                 reader.IsDBNull(5) ? null : reader.GetString(5),
                 reader.GetDateTime(6),
                 reader.IsDBNull(7) ? null : reader.GetDateTime(7),
-                reader.IsDBNull(8) ? null : reader.GetString(8));
+                reader.IsDBNull(8) ? null : reader.GetString(8),
+                reader.IsDBNull(9) ? null : reader.GetString(9));
 
             await reader.CloseAsync();
 

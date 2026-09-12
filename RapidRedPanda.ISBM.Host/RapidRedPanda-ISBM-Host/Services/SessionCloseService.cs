@@ -314,6 +314,7 @@ public sealed class SessionCloseService : ISessionCloseService
             string channelId,
             IReadOnlyList<string> topics,
             string? listenerUrl,
+            string? filterExpressionsJson,
             ChannelCredentials? credentials,
             CancellationToken cancellationToken)
         {

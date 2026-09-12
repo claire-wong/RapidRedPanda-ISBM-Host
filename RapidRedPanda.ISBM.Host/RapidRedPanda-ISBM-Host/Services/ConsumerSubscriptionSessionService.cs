@@ -11,6 +11,7 @@ public interface IConsumerSubscriptionSessionService
         string channelId,
         IReadOnlyList<string> topics,
         string? listenerUrl,
+        string? filterExpressionsJson,
         ChannelCredentials? credentials,
         CancellationToken cancellationToken);
 
@@ -174,6 +175,7 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
         string channelId,
         IReadOnlyList<string> topics,
         string? listenerUrl,
+        string? filterExpressionsJson,
         ChannelCredentials? credentials,
         CancellationToken cancellationToken)
     {
@@ -296,7 +298,10 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
                 azureSubscriptionName,
                 requestedTopics,
                 channel.AuthenticatedTokenUsername,
-                normalizedListenerUrl),
+                normalizedListenerUrl,
+                // FilterExpressions are accepted and persisted for ISBM protocol compatibility.
+                // Backend filtering is not applied in this phase; delivery remains topic-based.
+                filterExpressionsJson),
             cancellationToken);
 
         if (insertResult.Succeeded)

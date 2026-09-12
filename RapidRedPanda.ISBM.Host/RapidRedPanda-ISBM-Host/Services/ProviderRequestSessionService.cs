@@ -11,6 +11,7 @@ public interface IProviderRequestSessionService
         string channelId,
         IReadOnlyList<string> topics,
         string? listenerUrl,
+        string? filterExpressionsJson,
         ChannelCredentials? credentials,
         CancellationToken cancellationToken);
 
@@ -197,6 +198,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
         string channelId,
         IReadOnlyList<string> topics,
         string? listenerUrl,
+        string? filterExpressionsJson,
         ChannelCredentials? credentials,
         CancellationToken cancellationToken)
     {
@@ -270,7 +272,10 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
                 azureSubscriptionName,
                 requestedTopics,
                 channel.AuthenticatedTokenUsername,
-                normalizedListenerUrl),
+                normalizedListenerUrl,
+                // FilterExpressions are accepted and persisted for ISBM protocol compatibility.
+                // Backend filtering is not applied in this phase; delivery remains topic-based.
+                filterExpressionsJson),
             cancellationToken);
 
         if (insertResult.Succeeded)

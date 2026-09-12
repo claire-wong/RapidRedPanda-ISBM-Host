@@ -26,6 +26,7 @@
     <Compile Include="BrokerMessageContentAdapterTests.cs" />
     <Compile Include="SqlMessageContentAdapterTests.cs" />
     <Compile Include="MessageContentSemanticsControllerTests.cs" />
+    <Compile Include="FilterExpressionsTests.cs" />
     <Compile Include="ProviderConsumerPublicationRoundTripTests.cs" />
     <Compile Include="ProviderConsumerRequestRoundTripTests.cs" />
     <Compile Include="ProviderConsumerResponseRoundTripTests.cs" />

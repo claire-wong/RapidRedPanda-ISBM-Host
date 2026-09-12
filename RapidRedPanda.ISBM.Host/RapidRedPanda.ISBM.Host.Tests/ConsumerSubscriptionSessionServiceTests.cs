@@ -30,7 +30,7 @@ public sealed class ConsumerSubscriptionSessionServiceTests
         FakeSessionRepository sessionRepository = new();
         ConsumerSubscriptionSessionService service = CreateService(channelRepository, sessionRepository, transport);
 
-        OpenSubscriptionSessionResult result = await service.OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, CancellationToken.None);
+        OpenSubscriptionSessionResult result = await service.OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, null, CancellationToken.None);
 
         Assert.True(result.Succeeded);
         Guid sessionId = Assert.IsType<Guid>(result.SessionId);
@@ -59,7 +59,7 @@ public sealed class ConsumerSubscriptionSessionServiceTests
         OpenSubscriptionSessionResult result = await CreateService(
                 ValidChannelRepository(channelId),
                 sessionRepository)
-            .OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, listenerUrl, null, CancellationToken.None);
+            .OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, listenerUrl, null, null, CancellationToken.None);
 
         Assert.True(result.Succeeded);
         ConsumerSubscriptionSessionCreateData inserted = Assert.Single(sessionRepository.InsertedSessions);
@@ -85,7 +85,7 @@ public sealed class ConsumerSubscriptionSessionServiceTests
                 sessionRepository,
                 transport,
                 topicTransport)
-            .OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, listenerUrl, null, CancellationToken.None);
+            .OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, listenerUrl, null, null, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Equal(OpenSubscriptionSessionFailureKind.ParameterFault, result.FailureKind);
@@ -107,7 +107,7 @@ public sealed class ConsumerSubscriptionSessionServiceTests
                 channelRepository,
                 sessionRepository,
                 transport)
-            .OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, listenerUrl, null, CancellationToken.None);
+            .OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, listenerUrl, null, null, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Equal(OpenSubscriptionSessionFailureKind.ParameterFault, result.FailureKind);
@@ -133,8 +133,8 @@ public sealed class ConsumerSubscriptionSessionServiceTests
         FakeSessionRepository sessionRepository = new();
         ConsumerSubscriptionSessionService service = CreateService(channelRepository, sessionRepository, transport);
 
-        OpenSubscriptionSessionResult first = await service.OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, CancellationToken.None);
-        OpenSubscriptionSessionResult second = await service.OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, CancellationToken.None);
+        OpenSubscriptionSessionResult first = await service.OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, null, CancellationToken.None);
+        OpenSubscriptionSessionResult second = await service.OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, null, CancellationToken.None);
 
         Assert.True(first.Succeeded);
         Assert.True(second.Succeeded);
@@ -150,7 +150,7 @@ public sealed class ConsumerSubscriptionSessionServiceTests
             ChannelResult = GetChannelForSubscriptionResult.Failure(GetChannelForSubscriptionFailureKind.NotFound, "missing")
         };
 
-        OpenSubscriptionSessionResult result = await CreateService(channelRepository).OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, CancellationToken.None);
+        OpenSubscriptionSessionResult result = await CreateService(channelRepository).OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, null, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Equal(OpenSubscriptionSessionFailureKind.ChannelFault, result.FailureKind);
@@ -161,7 +161,7 @@ public sealed class ConsumerSubscriptionSessionServiceTests
     {
         FakeChannelRepository channelRepository = new();
 
-        OpenSubscriptionSessionResult result = await CreateService(channelRepository).OpenSubscriptionSessionAsync("%20%2Fbad", ConsumerTopics, null, null, CancellationToken.None);
+        OpenSubscriptionSessionResult result = await CreateService(channelRepository).OpenSubscriptionSessionAsync("%20%2Fbad", ConsumerTopics, null, null, null, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Equal(OpenSubscriptionSessionFailureKind.ParameterFault, result.FailureKind);
@@ -179,6 +179,7 @@ public sealed class ConsumerSubscriptionSessionServiceTests
         OpenSubscriptionSessionResult result = await CreateService(channelRepository).OpenSubscriptionSessionAsync(
             EncodedChannelUri,
             ConsumerTopics,
+            null,
             null,
             new ChannelCredentials("TESTER", "secret"),
             CancellationToken.None);
@@ -200,7 +201,7 @@ public sealed class ConsumerSubscriptionSessionServiceTests
                 sessionRepository,
                 transport,
                 topicTransport)
-            .OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, CancellationToken.None);
+            .OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, null, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Equal(OpenSubscriptionSessionFailureKind.OperationFault, result.FailureKind);
@@ -221,7 +222,7 @@ public sealed class ConsumerSubscriptionSessionServiceTests
                 sessionRepository,
                 subscriptionTransport,
                 topicTransport)
-            .OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, CancellationToken.None);
+            .OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, null, CancellationToken.None);
 
         Assert.True(result.Succeeded);
         Assert.Equal(ChannelTransportNames.TopicNameForChannel(channelId), Assert.Single(topicTransport.CreatedTopics));
@@ -240,7 +241,7 @@ public sealed class ConsumerSubscriptionSessionServiceTests
                 ValidChannelRepository(channelId),
                 sessionRepository,
                 transport)
-            .OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, CancellationToken.None);
+            .OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, null, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Equal(OpenSubscriptionSessionFailureKind.OperationFault, result.FailureKind);
@@ -261,7 +262,7 @@ public sealed class ConsumerSubscriptionSessionServiceTests
                 ValidChannelRepository(channelId),
                 sessionRepository,
                 transport)
-            .OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, CancellationToken.None);
+            .OpenSubscriptionSessionAsync(EncodedChannelUri, ConsumerTopics, null, null, null, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Equal(OpenSubscriptionSessionFailureKind.OperationFault, result.FailureKind);
