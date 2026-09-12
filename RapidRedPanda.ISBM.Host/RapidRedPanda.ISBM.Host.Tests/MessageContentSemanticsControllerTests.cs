@@ -165,6 +165,46 @@ public sealed class MessageContentSemanticsControllerTests
         Assert.Equal(expectedMediaType, service.PostedMessageContent?.MediaType);
     }
 
+    [Theory]
+    [InlineData("""{"messageContent":{"content":{"value":42}},"topics":["validation"]}""", InternalMessageContentKind.Json, null, null)]
+    [InlineData("""{"messageContent":{"mediaType":"text/plain","content":"Motor temperature high"},"topics":["validation"]}""", InternalMessageContentKind.String, "text/plain", null)]
+    [InlineData("""{"messageContent":{"mediaType":"application/xml","content":"<reading><value>42</value></reading>"},"topics":["validation"]}""", InternalMessageContentKind.String, "application/xml", null)]
+    [InlineData("""{"messageContent":{"mediaType":"application/json","content":"{\"value\":42}"},"topics":["validation"]}""", InternalMessageContentKind.String, "application/json", null)]
+    [InlineData("""{"messageContent":{"mediaType":"text/plain","content":"Motor temperature high"},"topics":["validation"],"expiry":"P2D"}""", InternalMessageContentKind.String, "text/plain", "P2D")]
+    public async Task PostRequest_MessageContentWithOptionalExpiry_DelegatesExpectedContent(
+        string envelope,
+        InternalMessageContentKind expectedKind,
+        string? expectedMediaType,
+        string? expectedExpiry)
+    {
+        ConsumerRequestService service = new();
+        ConsumerRequestServiceController controller = CreateConsumerRequestController(service);
+        SetBody(controller, envelope, "application/json");
+
+        IActionResult result = await controller.PostRequest(Guid.NewGuid().ToString(), CancellationToken.None);
+
+        ObjectResult created = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status201Created, created.StatusCode);
+        Assert.Equal(expectedKind, service.PostedMessageContent?.Kind);
+        Assert.Equal(expectedMediaType, service.PostedMessageContent?.MediaType);
+        Assert.Equal(expectedExpiry, service.PostedExpiry);
+    }
+
+    [Fact]
+    public async Task PostRequest_StringContentWithoutMediaType_ReturnsParameterFaultWithoutDelegating()
+    {
+        ConsumerRequestService service = new();
+        ConsumerRequestServiceController controller = CreateConsumerRequestController(service);
+        SetBody(controller, """{"messageContent":{"content":"Motor temperature high"},"topics":["validation"]}""", "application/json");
+
+        IActionResult result = await controller.PostRequest(Guid.NewGuid().ToString(), CancellationToken.None);
+
+        BadRequestObjectResult badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        FaultResponse fault = Assert.IsType<FaultResponse>(badRequest.Value);
+        Assert.Equal("ParameterFault", fault.Fault);
+        Assert.Null(service.PostedMessageContent);
+    }
+
     [Fact]
     public async Task PostRequest_BinaryContent_DelegatesDecodedPayloadAndPayloadMediaType()
     {
@@ -347,6 +387,7 @@ public sealed class MessageContentSemanticsControllerTests
     private sealed class ConsumerRequestService : IConsumerRequestSessionService
     {
         public InternalMessageContent? PostedMessageContent { get; private set; }
+        public string? PostedExpiry { get; private set; }
 
         public Task<OpenConsumerRequestSessionResult> OpenConsumerRequestSessionAsync(
             string channelId,
@@ -372,6 +413,7 @@ public sealed class MessageContentSemanticsControllerTests
             CancellationToken cancellationToken)
         {
             PostedMessageContent = messageContent;
+            PostedExpiry = expiry;
             return Task.FromResult(PostRequestResult.Success(Guid.NewGuid()));
         }
 

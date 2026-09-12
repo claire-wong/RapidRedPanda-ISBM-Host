@@ -9,6 +9,43 @@ namespace RapidRedPanda.ISBM.Host.Tests;
 
 public sealed class ProviderConsumerRequestRoundTripTests
 {
+    [Theory]
+    [InlineData("text/plain", "Motor temperature high")]
+    [InlineData("application/xml", "<reading><value>42</value></reading>")]
+    [InlineData("application/json", "{\"value\":42}")]
+    public async Task ConsumerPostRequest_StringContentWithMediaTypeAndNoExpiry_Succeeds(
+        string mediaType,
+        string payload)
+    {
+        Guid channelId = Guid.NewGuid();
+        Guid consumerSessionId = Guid.NewGuid();
+        const string azureTopicName = "isbm-request-topic";
+        FakeChannelRepository channelRepository = new(channelId, azureTopicName);
+        FakeConsumerRequestSessionRepository consumerSessionRepository = new(consumerSessionId, channelId);
+        FakeConsumerRequestRepository requestRepository = new();
+        CapturingPublicationTransport publicationTransport = new();
+        ConsumerRequestSessionService consumerService = new(
+            channelRepository,
+            consumerSessionRepository,
+            requestRepository,
+            new UnusedRequestResponseRepository(),
+            publicationTransport,
+            NullLogger<ConsumerRequestSessionService>.Instance);
+
+        PostRequestResult postResult = await consumerService.PostRequestAsync(
+            consumerSessionId.ToString(),
+            ["validation"],
+            InternalMessageContent.FromString(payload, mediaType),
+            null,
+            CancellationToken.None);
+
+        Assert.True(postResult.Succeeded);
+        ServiceBusMessage sentMessage = Assert.Single(publicationTransport.SentMessages);
+        Assert.Equal(mediaType, sentMessage.ContentType);
+        Assert.NotNull(requestRepository.LastInsertedRequest);
+        Assert.Null(requestRepository.LastInsertedRequest.EffectiveExpiryUtc);
+    }
+
     [Fact]
     public async Task ConsumerPostRequest_CanBeReadByProviderWithSameBinaryPayload()
     {
@@ -175,8 +212,11 @@ public sealed class ProviderConsumerRequestRoundTripTests
 
     private sealed class FakeConsumerRequestRepository : IConsumerRequestRepository
     {
+        public ConsumerRequestCreateData? LastInsertedRequest { get; private set; }
+
         public Task<ConsumerRequestRepositoryResult> InsertPostedRequestAsync(ConsumerRequestCreateData request, CancellationToken cancellationToken)
         {
+            LastInsertedRequest = request;
             return Task.FromResult(ConsumerRequestRepositoryResult.Success());
         }
 
