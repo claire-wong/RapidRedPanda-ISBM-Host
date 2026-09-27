@@ -401,6 +401,8 @@ public sealed class PublicationNotificationDispatcherTests
 
     private sealed class FakeClient(PublicationNotificationDeliveryResult result) : IPublicationNotificationClient
     {
+        private readonly object _syncRoot = new();
+
         public int SendCount { get; private set; }
         public ClaimedPublicationNotification? LastNotification { get; private set; }
         public List<ClaimedPublicationNotification> SentNotifications { get; } = [];
@@ -409,9 +411,13 @@ public sealed class PublicationNotificationDispatcherTests
             ClaimedPublicationNotification notification,
             CancellationToken cancellationToken)
         {
-            SendCount++;
-            LastNotification = notification;
-            SentNotifications.Add(notification);
+            lock (_syncRoot)
+            {
+                SendCount++;
+                LastNotification = notification;
+                SentNotifications.Add(notification);
+            }
+
             return Task.FromResult(result);
         }
     }
