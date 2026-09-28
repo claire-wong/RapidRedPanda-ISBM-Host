@@ -89,7 +89,7 @@ public sealed class ProviderPublicationServiceControllerTests
     }
 
     [Fact]
-    public async Task OpenPublicationSession_InvalidSecurityToken_ReturnsSecurityTokenFault()
+    public async Task OpenPublicationSession_InvalidSecurityToken_ReturnsChannelFault()
     {
         ProviderPublicationServiceController controller = CreateController(new CapturingProviderPublicationSessionService
         {
@@ -98,9 +98,9 @@ public sealed class ProviderPublicationServiceControllerTests
 
         IActionResult result = await controller.OpenPublicationSession("%2Fsecured", CancellationToken.None);
 
-        ConflictObjectResult conflict = Assert.IsType<ConflictObjectResult>(result);
-        FaultResponse fault = Assert.IsType<FaultResponse>(conflict.Value);
-        Assert.Equal("SecurityTokenFault", fault.Fault);
+        NotFoundObjectResult notFound = Assert.IsType<NotFoundObjectResult>(result);
+        FaultResponse fault = Assert.IsType<FaultResponse>(notFound.Value);
+        Assert.Equal("ChannelFault", fault.Fault);
     }
 
     [Fact]

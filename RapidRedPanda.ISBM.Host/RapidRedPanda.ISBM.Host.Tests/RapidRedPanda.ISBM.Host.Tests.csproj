@@ -43,6 +43,8 @@
     <Compile Include="PublicationTopicRoutingTests.cs" />
     <Compile Include="UsernameTokenParserTests.cs" />
     <Compile Include="ChannelManagementControllerTests.cs" />
+    <Compile Include="ConfigurationDiscoveryControllerTests.cs" />
+    <Compile Include="PhaseOneAuthenticationCoverageTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

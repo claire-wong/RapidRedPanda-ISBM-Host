@@ -20,15 +20,18 @@ public sealed class ConsumerPublicationServiceController : Controller
     private readonly IConsumerSubscriptionSessionService _subscriptionSessionService;
     private readonly IUsernameTokenParser _usernameTokenParser;
     private readonly ILogger<ConsumerPublicationServiceController> _logger;
+    private readonly IIsbmOperationAuthorizationService? _authorization;
 
     public ConsumerPublicationServiceController(
         IConsumerSubscriptionSessionService subscriptionSessionService,
         IUsernameTokenParser usernameTokenParser,
-        ILogger<ConsumerPublicationServiceController> logger)
+        ILogger<ConsumerPublicationServiceController> logger,
+        IIsbmOperationAuthorizationService? authorization = null)
     {
         _subscriptionSessionService = subscriptionSessionService;
         _usernameTokenParser = usernameTokenParser;
         _logger = logger;
+        _authorization = authorization;
     }
 
     [HttpPost("channels/{channelId}/subscription-sessions")]
@@ -81,7 +84,7 @@ public sealed class ConsumerPublicationServiceController : Controller
         {
             OpenSubscriptionSessionFailureKind.ParameterFault => BadRequest(new FaultResponse("ParameterFault")),
             OpenSubscriptionSessionFailureKind.ChannelFault => NotFound(new FaultResponse("ChannelFault")),
-            OpenSubscriptionSessionFailureKind.SecurityTokenFault => Conflict(new FaultResponse("SecurityTokenFault")),
+            OpenSubscriptionSessionFailureKind.SecurityTokenFault => NotFound(new FaultResponse("ChannelFault")),
             _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
         };
     }
@@ -89,6 +92,9 @@ public sealed class ConsumerPublicationServiceController : Controller
     [HttpGet("sessions/{sessionId}/publication")]
     public async Task<IActionResult> ReadPublication(string sessionId, CancellationToken cancellationToken)
     {
+        IActionResult? authorizationFailure = await AuthorizeSessionAsync(sessionId, cancellationToken);
+        if (authorizationFailure is not null) return authorizationFailure;
+
         ReadPublicationResult result;
         try
         {
@@ -126,6 +132,9 @@ public sealed class ConsumerPublicationServiceController : Controller
     [HttpDelete("sessions/{sessionId}/publication")]
     public async Task<IActionResult> RemovePublication(string sessionId, CancellationToken cancellationToken)
     {
+        IActionResult? authorizationFailure = await AuthorizeSessionAsync(sessionId, cancellationToken);
+        if (authorizationFailure is not null) return authorizationFailure;
+
         RemovePublicationResult result;
         try
         {
@@ -152,41 +161,19 @@ public sealed class ConsumerPublicationServiceController : Controller
 
     private ChannelCredentials? TryReadBasicCredentials()
     {
-        string? authorizationHeader = Request.Headers.Authorization.FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(authorizationHeader))
+        return BasicAuthenticationCredentials.Read(Request, _usernameTokenParser);
+    }
+
+    private async Task<IActionResult?> AuthorizeSessionAsync(string sessionId, CancellationToken cancellationToken)
+    {
+        if (_authorization is null) return null;
+        IsbmAuthorizationOutcome outcome = await _authorization.AuthorizeSessionAsync(
+            sessionId, IsbmSessionKind.ConsumerPublication, TryReadBasicCredentials(), cancellationToken);
+        return outcome switch
         {
-            return null;
-        }
-
-        if (!AuthenticationHeaderValue.TryParse(authorizationHeader, out AuthenticationHeaderValue? authenticationHeader) ||
-            !string.Equals(authenticationHeader.Scheme, "Basic", StringComparison.OrdinalIgnoreCase) ||
-            string.IsNullOrWhiteSpace(authenticationHeader.Parameter))
-        {
-            return null;
-        }
-
-        try
-        {
-            string decoded = Encoding.UTF8.GetString(Convert.FromBase64String(authenticationHeader.Parameter));
-            int separatorIndex = decoded.IndexOf(':', StringComparison.Ordinal);
-            if (separatorIndex < 0)
-            {
-                return null;
-            }
-
-            string username = decoded[..separatorIndex];
-            string password = decoded[(separatorIndex + 1)..];
-
-            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrEmpty(password))
-            {
-                return null;
-            }
-
-            return new ChannelCredentials(_usernameTokenParser.NormalizeUsername(username), password);
-        }
-        catch (FormatException)
-        {
-            return null;
-        }
+            IsbmAuthorizationOutcome.Authorized => null,
+            IsbmAuthorizationOutcome.NotFoundOrUnauthorized => NotFound(new FaultResponse("SessionFault")),
+            _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
+        };
     }
 }

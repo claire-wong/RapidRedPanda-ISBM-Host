@@ -25,7 +25,12 @@ builder.Services.AddScoped<IProviderPublicationSessionService, ProviderPublicati
 builder.Services.AddScoped<IProviderRequestSessionService, ProviderRequestSessionService>();
 builder.Services.AddScoped<IConsumerRequestSessionService, ConsumerRequestSessionService>();
 builder.Services.AddScoped<ISessionCloseService, SessionCloseService>();
+builder.Services.AddScoped<IIsbmOperationAuthorizationService, IsbmOperationAuthorizationService>();
 builder.Services.AddSingleton<IUsernameTokenParser, UsernameTokenParser>();
+builder.Services.AddOptions<ConfigurationDiscoveryOptions>()
+    .Bind(builder.Configuration.GetSection(ConfigurationDiscoveryOptions.SectionName))
+    .Validate(ConfigurationDiscoveryOptions.IsValid, "ISBM Configuration Discovery settings are invalid.")
+    .ValidateOnStart();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IPublicationNotificationUriBuilder, PublicationNotificationUriBuilder>();
 builder.Services.AddSingleton<IPublicationNotificationClient, PublicationNotificationClient>();

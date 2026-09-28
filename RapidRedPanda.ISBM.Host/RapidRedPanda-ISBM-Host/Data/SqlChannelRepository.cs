@@ -604,7 +604,8 @@ public sealed class SqlChannelRepository : IChannelRepository
 
                 hasSecurityTokens = true;
                 if (credentials is null ||
-                    !string.Equals(reader.GetString(0), expectedAuthenticatedTokenUsername, StringComparison.Ordinal) ||
+                    (expectedAuthenticatedTokenUsername is not null &&
+                     !string.Equals(reader.GetString(0), expectedAuthenticatedTokenUsername, StringComparison.Ordinal)) ||
                     !string.Equals(reader.GetString(1), credentials.NormalizedUsername, StringComparison.Ordinal))
                 {
                     continue;

@@ -21,15 +21,18 @@ public sealed class ConsumerRequestServiceController : Controller
     private readonly IConsumerRequestSessionService _requestSessionService;
     private readonly IUsernameTokenParser _usernameTokenParser;
     private readonly ILogger<ConsumerRequestServiceController> _logger;
+    private readonly IIsbmOperationAuthorizationService? _authorization;
 
     public ConsumerRequestServiceController(
         IConsumerRequestSessionService requestSessionService,
         IUsernameTokenParser usernameTokenParser,
-        ILogger<ConsumerRequestServiceController> logger)
+        ILogger<ConsumerRequestServiceController> logger,
+        IIsbmOperationAuthorizationService? authorization = null)
     {
         _requestSessionService = requestSessionService;
         _usernameTokenParser = usernameTokenParser;
         _logger = logger;
+        _authorization = authorization;
     }
 
     [HttpPost("channels/{channelId}/consumer-request-sessions")]
@@ -74,7 +77,7 @@ public sealed class ConsumerRequestServiceController : Controller
         {
             OpenConsumerRequestSessionFailureKind.ParameterFault => BadRequest(new FaultResponse("ParameterFault")),
             OpenConsumerRequestSessionFailureKind.ChannelFault => NotFound(new FaultResponse("ChannelFault")),
-            OpenConsumerRequestSessionFailureKind.SecurityTokenFault => Conflict(new FaultResponse("SecurityTokenFault")),
+            OpenConsumerRequestSessionFailureKind.SecurityTokenFault => NotFound(new FaultResponse("ChannelFault")),
             _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
         };
     }
@@ -82,6 +85,9 @@ public sealed class ConsumerRequestServiceController : Controller
     [HttpPost("sessions/{sessionId}/requests")]
     public async Task<IActionResult> PostRequest(string sessionId, CancellationToken cancellationToken)
     {
+        IActionResult? authorizationFailure = await AuthorizeSessionAsync(sessionId, cancellationToken);
+        if (authorizationFailure is not null) return authorizationFailure;
+
         if (!RestEnvelopeMediaTypeValidator.IsJsonEnvelopeMediaType(Request.ContentType))
         {
             return new UnsupportedMediaTypeResult();
@@ -144,6 +150,9 @@ public sealed class ConsumerRequestServiceController : Controller
     [HttpDelete("sessions/{sessionId}/requests/{messageId}")]
     public async Task<IActionResult> ExpireRequest(string sessionId, string messageId, CancellationToken cancellationToken)
     {
+        IActionResult? authorizationFailure = await AuthorizeSessionAsync(sessionId, cancellationToken);
+        if (authorizationFailure is not null) return authorizationFailure;
+
         ExpireRequestResult result;
         try
         {
@@ -175,6 +184,9 @@ public sealed class ConsumerRequestServiceController : Controller
     [HttpGet("sessions/{sessionId}/requests/{requestMessageId}/response")]
     public async Task<IActionResult> ReadResponse(string sessionId, string requestMessageId, CancellationToken cancellationToken)
     {
+        IActionResult? authorizationFailure = await AuthorizeSessionAsync(sessionId, cancellationToken);
+        if (authorizationFailure is not null) return authorizationFailure;
+
         ReadResponseResult result;
         try
         {
@@ -213,6 +225,9 @@ public sealed class ConsumerRequestServiceController : Controller
     [HttpDelete("sessions/{sessionId}/requests/{requestMessageId}/response")]
     public async Task<IActionResult> RemoveResponse(string sessionId, string requestMessageId, CancellationToken cancellationToken)
     {
+        IActionResult? authorizationFailure = await AuthorizeSessionAsync(sessionId, cancellationToken);
+        if (authorizationFailure is not null) return authorizationFailure;
+
         RemoveResponseResult result;
         try
         {
@@ -243,41 +258,19 @@ public sealed class ConsumerRequestServiceController : Controller
 
     private ChannelCredentials? TryReadBasicCredentials()
     {
-        string? authorizationHeader = Request.Headers.Authorization.FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(authorizationHeader))
+        return BasicAuthenticationCredentials.Read(Request, _usernameTokenParser);
+    }
+
+    private async Task<IActionResult?> AuthorizeSessionAsync(string sessionId, CancellationToken cancellationToken)
+    {
+        if (_authorization is null) return null;
+        IsbmAuthorizationOutcome outcome = await _authorization.AuthorizeSessionAsync(
+            sessionId, IsbmSessionKind.ConsumerRequest, TryReadBasicCredentials(), cancellationToken);
+        return outcome switch
         {
-            return null;
-        }
-
-        if (!AuthenticationHeaderValue.TryParse(authorizationHeader, out AuthenticationHeaderValue? authenticationHeader) ||
-            !string.Equals(authenticationHeader.Scheme, "Basic", StringComparison.OrdinalIgnoreCase) ||
-            string.IsNullOrWhiteSpace(authenticationHeader.Parameter))
-        {
-            return null;
-        }
-
-        try
-        {
-            string decoded = Encoding.UTF8.GetString(Convert.FromBase64String(authenticationHeader.Parameter));
-            int separatorIndex = decoded.IndexOf(':', StringComparison.Ordinal);
-            if (separatorIndex < 0)
-            {
-                return null;
-            }
-
-            string username = decoded[..separatorIndex];
-            string password = decoded[(separatorIndex + 1)..];
-
-            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrEmpty(password))
-            {
-                return null;
-            }
-
-            return new ChannelCredentials(_usernameTokenParser.NormalizeUsername(username), password);
-        }
-        catch (FormatException)
-        {
-            return null;
-        }
+            IsbmAuthorizationOutcome.Authorized => null,
+            IsbmAuthorizationOutcome.NotFoundOrUnauthorized => NotFound(new FaultResponse("SessionFault")),
+            _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
+        };
     }
 }
