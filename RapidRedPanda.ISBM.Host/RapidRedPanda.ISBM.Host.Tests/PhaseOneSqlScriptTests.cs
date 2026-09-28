@@ -553,6 +553,100 @@ public sealed class PhaseOneSqlScriptTests
     }
 
     [Fact]
+    public async Task TopicValueHardeningMigration_AlignsEqualityAndAddsRequestTopicUniqueness()
+    {
+        string migration = await ReadScriptAsync("Migrations", "018_HardenTopicValueSemantics.sql");
+        string install = await ReadScriptAsync("Install", "002_CreatePhaseOneSchema.sql");
+        string validation = await ReadScriptAsync("Validation", "ValidatePhaseOneSchema.sql");
+
+        Assert.Contains("set xact_abort on", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("begin transaction", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SessionFilterExpressions-001", migration, StringComparison.Ordinal);
+        Assert.Contains("TopicValueSemantics-001", migration, StringComparison.Ordinal);
+        Assert.Contains("Latin1_General_100_BIN2", migration, StringComparison.Ordinal);
+        Assert.Contains("having count(*) > 1", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("UQ_ConsumerRequestTopics_Message_TopicValue", migration, StringComparison.Ordinal);
+        Assert.Contains("rollback transaction", migration, StringComparison.OrdinalIgnoreCase);
+
+        foreach (string tableName in new[]
+        {
+            "ConsumerSubscriptionSessionTopics",
+            "ProviderRequestSessionTopics",
+            "ConsumerRequestTopics",
+            "ProviderPublicationTopics",
+            "NotificationTopics"
+        })
+        {
+            Assert.Contains(tableName, migration, StringComparison.Ordinal);
+            Assert.Contains(tableName, validation, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(5, CountOccurrences(install, "TopicValue nvarchar(512) collate Latin1_General_100_BIN2 not null"));
+        Assert.Contains("UQ_ConsumerRequestTopics_Message_TopicValue", install, StringComparison.Ordinal);
+        Assert.Contains("TopicValueSemantics-001", install, StringComparison.Ordinal);
+        Assert.Contains("Latin1_General_100_BIN2", validation, StringComparison.Ordinal);
+        Assert.Contains("UQ_ConsumerRequestTopics_Message_TopicValue", validation, StringComparison.Ordinal);
+        Assert.DoesNotContain("create table dbo.Topics", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("on delete cascade", migration, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Validation_ProvesTopicOwnershipForeignKeyShapeAndSafety()
+    {
+        string validation = await ReadScriptAsync("Validation", "ValidatePhaseOneSchema.sql");
+
+        foreach (string foreignKeyName in new[]
+        {
+            "FK_ConsumerSubscriptionSessionTopics_Sessions",
+            "FK_ProviderRequestSessionTopics_Sessions",
+            "FK_ConsumerRequestTopics_Requests",
+            "FK_ProviderPublicationTopics_Publications",
+            "FK_NotificationTopics_Notifications"
+        })
+        {
+            Assert.Contains(foreignKeyName, validation, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("sys.foreign_key_columns", validation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("parent_object_id = object_id(expected.ChildTable)", validation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("referenced_object_id = object_id(expected.ParentTable)", validation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("delete_referential_action = 0", validation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("is_disabled = 0", validation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("is_not_trusted = 0", validation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("childColumnDefinition.name = expected.ChildColumn", validation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("parentColumnDefinition.name = expected.ParentColumn", validation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Validation_ProvesEveryTopicValueIndexDefinition()
+    {
+        string validation = await ReadScriptAsync("Validation", "ValidatePhaseOneSchema.sql");
+
+        foreach (string indexName in new[]
+        {
+            "UQ_ConsumerSubscriptionSessionTopics_Session_TopicValue",
+            "IX_ConsumerSubscriptionSessionTopics_TopicValue",
+            "UQ_ProviderRequestSessionTopics_Session_TopicValue",
+            "IX_ProviderRequestSessionTopics_TopicValue",
+            "UQ_ConsumerRequestTopics_Message_TopicValue",
+            "UQ_ProviderPublicationTopics_Message_TopicValue",
+            "UQ_NotificationTopics_Notification_TopicValue"
+        })
+        {
+            Assert.Contains(indexName, validation, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("indexDefinition.is_unique = expected.IsUnique", validation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("firstKey.key_ordinal = 1", validation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("secondKey.key_ordinal = 2", validation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("includedColumn.is_included_column = 1", validation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("expected.KeyColumnCount", validation, StringComparison.Ordinal);
+        Assert.Contains("expected.IncludedColumnCount", validation, StringComparison.Ordinal);
+        Assert.Contains("indexDefinition.is_disabled = 0", validation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("indexDefinition.has_filter = 0", validation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Scripts_DoNotCreateFuturePhaseTables()
     {
         string script = await ReadAllScriptsAsync();

@@ -48,6 +48,53 @@ public sealed class ConsumerSubscriptionSessionServiceTests
         Assert.Null(inserted.ListenerUrl);
     }
 
+    [Fact]
+    public async Task OpenSubscriptionSession_ThirtyThreeShortTopicsUnderFilterLimit_Succeeds()
+    {
+        Guid channelId = Guid.NewGuid();
+        IReadOnlyList<string> topics = Enumerable.Range(33, 33)
+            .Select(value => ((char)value).ToString())
+            .ToArray();
+        string filter = TopicSelectionRules.BuildAzureSqlFilter(topics);
+        FakeSubscriptionTransport transport = new();
+        FakeSessionRepository sessionRepository = new();
+
+        OpenSubscriptionSessionResult result = await CreateService(
+                ValidChannelRepository(channelId),
+                sessionRepository,
+                transport)
+            .OpenSubscriptionSessionAsync(EncodedChannelUri, topics, null, null, null, CancellationToken.None);
+
+        Assert.Equal(1019, filter.Length);
+        Assert.True(filter.Length < PublicationRoutingProperties.MaxSqlFilterLength);
+        Assert.True(result.Succeeded);
+        Assert.Equal(topics, Assert.Single(transport.CreatedSubscriptions).ConsumerTopics);
+        Assert.Equal(topics, Assert.Single(sessionRepository.InsertedSessions).RequestedTopics);
+    }
+
+    [Fact]
+    public async Task OpenSubscriptionSession_FilterOverLimit_ReturnsParameterFaultBeforeSideEffects()
+    {
+        IReadOnlyList<string> topics = Enumerable.Range(33, 34)
+            .Select(value => ((char)value).ToString())
+            .ToArray();
+        FakeChannelRepository channelRepository = ValidChannelRepository(Guid.NewGuid());
+        FakeSubscriptionTransport transport = new();
+        FakeSessionRepository sessionRepository = new();
+
+        OpenSubscriptionSessionResult result = await CreateService(
+                channelRepository,
+                sessionRepository,
+                transport)
+            .OpenSubscriptionSessionAsync(EncodedChannelUri, topics, null, null, null, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(OpenSubscriptionSessionFailureKind.ParameterFault, result.FailureKind);
+        Assert.Null(channelRepository.ChannelUri);
+        Assert.Empty(transport.CreatedSubscriptions);
+        Assert.Empty(sessionRepository.InsertedSessions);
+    }
+
     [Theory]
     [InlineData("http://localhost:5080/isbm")]
     [InlineData("https://listener.example.com/isbm?tenant=a")]

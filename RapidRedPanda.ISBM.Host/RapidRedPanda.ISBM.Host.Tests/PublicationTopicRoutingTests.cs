@@ -1,9 +1,113 @@
 using RapidRedPanda.ISBM.Host.Services;
+using Microsoft.Extensions.Logging.Abstractions;
+using RapidRedPanda.ISBM.Host.Data;
 
 namespace RapidRedPanda.ISBM.Host.Tests;
 
 public sealed class PublicationTopicRoutingTests
 {
+    [Theory]
+    [InlineData("Topic")]
+    [InlineData("topic")]
+    [InlineData("Topic-A")]
+    [InlineData("Topic A")]
+    [InlineData("Topic  A")]
+    public void TryValidateAndDeduplicate_AcceptsTopicsWithoutSurroundingWhitespace(string topic)
+    {
+        bool succeeded = TopicSelectionRules.TryValidateAndDeduplicate([topic], out IReadOnlyList<string>? validatedTopics);
+
+        Assert.True(succeeded);
+        Assert.Equal([topic], validatedTopics);
+    }
+
+    [Theory]
+    [InlineData(" Topic")]
+    [InlineData("Topic ")]
+    [InlineData(" Topic ")]
+    [InlineData("\tTopic")]
+    [InlineData("Topic\t")]
+    [InlineData("\nTopic")]
+    [InlineData("Topic\n")]
+    [InlineData("   ")]
+    public void TryValidateAndDeduplicate_RejectsTopicsWithSurroundingWhitespace(string topic)
+    {
+        bool succeeded = TopicSelectionRules.TryValidateAndDeduplicate([topic], out IReadOnlyList<string>? validatedTopics);
+
+        Assert.False(succeeded);
+        Assert.Null(validatedTopics);
+    }
+
+    [Fact]
+    public void TryValidateAndDeduplicate_PreservesOrdinalCaseDistinction()
+    {
+        bool succeeded = TopicSelectionRules.TryValidateAndDeduplicate(
+            ["Topic-A", "topic-a"],
+            out IReadOnlyList<string>? validatedTopics);
+
+        Assert.True(succeeded);
+        Assert.Equal(["Topic-A", "topic-a"], validatedTopics);
+    }
+
+    [Fact]
+    public async Task OpenProviderRequestSession_ThirtyThreeShortTopicsUnderFilterLimit_ReachesChannelLookup()
+    {
+        IReadOnlyList<string> topics = Enumerable.Range(33, 33)
+            .Select(value => ((char)value).ToString())
+            .ToArray();
+        string filter = TopicSelectionRules.BuildAzureSqlFilter(topics);
+        ProviderRequestChannelRepository channelRepository = new();
+        ProviderRequestSessionService service = new(
+            channelRepository,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            NullLogger<ProviderRequestSessionService>.Instance);
+
+        OpenProviderRequestSessionResult result = await service.OpenProviderRequestSessionAsync(
+            "%2Frequest%2Fchannel",
+            topics,
+            null,
+            null,
+            null,
+            CancellationToken.None);
+
+        Assert.Equal(1019, filter.Length);
+        Assert.True(filter.Length < PublicationRoutingProperties.MaxSqlFilterLength);
+        Assert.True(channelRepository.ProviderRequestLookupCalled);
+        Assert.Equal(OpenProviderRequestSessionFailureKind.ChannelFault, result.FailureKind);
+    }
+
+    [Fact]
+    public async Task OpenProviderRequestSession_FilterOverLimit_ReturnsParameterFaultBeforeChannelLookup()
+    {
+        IReadOnlyList<string> topics = Enumerable.Range(33, 34)
+            .Select(value => ((char)value).ToString())
+            .ToArray();
+        ProviderRequestChannelRepository channelRepository = new();
+        ProviderRequestSessionService service = new(
+            channelRepository,
+            null!,
+            null!,
+            null!,
+            null!,
+            null!,
+            NullLogger<ProviderRequestSessionService>.Instance);
+
+        OpenProviderRequestSessionResult result = await service.OpenProviderRequestSessionAsync(
+            "%2Frequest%2Fchannel",
+            topics,
+            null,
+            null,
+            null,
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(OpenProviderRequestSessionFailureKind.ParameterFault, result.FailureKind);
+        Assert.False(channelRepository.ProviderRequestLookupCalled);
+    }
+
     [Fact]
     public void HasIntersection_OnePublicationTopicMatchesOneConsumerTopic()
     {
@@ -14,6 +118,15 @@ public sealed class PublicationTopicRoutingTests
     public void HasIntersection_NoPublicationTopicsMatch()
     {
         Assert.False(TopicSelectionRules.HasIntersection(["Topic-A"], ["Topic-B"]));
+    }
+
+    [Fact]
+    public void TopicEquality_IsOrdinalAndCaseSensitive()
+    {
+        Assert.False(TopicSelectionRules.HasIntersection(["Topic-A"], ["topic-a"]));
+        Assert.Equal(
+            ["Topic-A", "topic-a"],
+            TopicSelectionRules.DeduplicateTopics(["Topic-A", "topic-a"]));
     }
 
     [Fact]
@@ -128,5 +241,59 @@ public sealed class PublicationTopicRoutingTests
             count++;
             startIndex = index + value.Length;
         }
+    }
+
+    private sealed class ProviderRequestChannelRepository : IChannelRepository
+    {
+        public bool ProviderRequestLookupCalled { get; private set; }
+
+        public Task<GetChannelForSubscriptionResult> GetChannelForProviderRequestSessionAsync(
+            string channelUri,
+            ChannelCredentials? credentials,
+            CancellationToken cancellationToken)
+        {
+            ProviderRequestLookupCalled = true;
+            return Task.FromResult(GetChannelForSubscriptionResult.Failure(
+                GetChannelForSubscriptionFailureKind.NotFound,
+                "missing"));
+        }
+
+        public Task<IReadOnlyList<ChannelData>> GetChannelsAsync(ChannelCredentials? credentials, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<GetChannelResult> GetChannelAsync(string channelUri, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<GetChannelTopicBindingResult> GetChannelTopicBindingAsync(string channelUri, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<GetChannelTopicBindingResult> GetChannelTopicBindingByIdAsync(Guid channelId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<GetChannelForSubscriptionResult> GetChannelForConsumerPublicationSubscriptionAsync(
+            string channelUri,
+            ChannelCredentials? credentials,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<GetChannelForSubscriptionResult> GetChannelForProviderPublicationSessionAsync(
+            string channelUri,
+            ChannelCredentials? credentials,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<CreateChannelResult> CreateChannelAsync(ChannelCreateRequestData request, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<DeleteChannelResult> DeleteChannelAsync(string channelUri, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<SecurityTokenMutationResult> AddSecurityTokensAsync(
+            string channelUri,
+            IReadOnlyList<ChannelCreateToken> tokens,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<SecurityTokenMutationResult> RemoveSecurityTokensAsync(
+            string channelUri,
+            IReadOnlyList<ChannelCreateToken> tokens,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 }

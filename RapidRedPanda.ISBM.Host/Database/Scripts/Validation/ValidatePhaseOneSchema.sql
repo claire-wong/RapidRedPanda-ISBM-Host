@@ -134,6 +134,166 @@ if not exists (select 1 from dbo.SchemaVersions where VersionNumber = N'Response
 if not exists (select 1 from dbo.SchemaVersions where VersionNumber = N'SessionFilterExpressions-001')
     throw 53079, 'Validation failed: expected schema version SessionFilterExpressions-001 was not recorded.', 1;
 
+if not exists (select 1 from dbo.SchemaVersions where VersionNumber = N'TopicValueSemantics-001')
+    throw 53080, 'Validation failed: expected schema version TopicValueSemantics-001 was not recorded.', 1;
+
+if exists
+(
+    select required.TableName
+    from
+    (
+        values
+            (N'ConsumerSubscriptionSessionTopics'),
+            (N'ProviderRequestSessionTopics'),
+            (N'ConsumerRequestTopics'),
+            (N'ProviderPublicationTopics'),
+            (N'NotificationTopics')
+    ) required(TableName)
+    left join sys.columns columnDefinition
+           on columnDefinition.object_id = object_id(N'dbo.' + required.TableName)
+          and columnDefinition.name = N'TopicValue'
+          and columnDefinition.system_type_id = type_id(N'nvarchar')
+          and columnDefinition.max_length = 1024
+          and columnDefinition.is_nullable = 0
+          and columnDefinition.collation_name = N'Latin1_General_100_BIN2'
+    where columnDefinition.column_id is null
+)
+    throw 53081, 'Validation failed: every TopicValue column must be non-null nvarchar(512) with Latin1_General_100_BIN2 collation.', 1;
+
+if exists
+(
+    select 1
+    from
+    (
+        values
+            (N'dbo.ConsumerSubscriptionSessionTopics', N'UQ_ConsumerSubscriptionSessionTopics_Session_TopicValue', N'SessionId', N'TopicValue', cast(null as sysname), 2, 0, 1),
+            (N'dbo.ConsumerSubscriptionSessionTopics', N'IX_ConsumerSubscriptionSessionTopics_TopicValue', N'TopicValue', cast(null as sysname), N'SessionId', 1, 1, 0),
+            (N'dbo.ProviderRequestSessionTopics', N'UQ_ProviderRequestSessionTopics_Session_TopicValue', N'ProviderRequestSessionId', N'TopicValue', cast(null as sysname), 2, 0, 1),
+            (N'dbo.ProviderRequestSessionTopics', N'IX_ProviderRequestSessionTopics_TopicValue', N'TopicValue', cast(null as sysname), N'ProviderRequestSessionId', 1, 1, 0),
+            (N'dbo.ConsumerRequestTopics', N'UQ_ConsumerRequestTopics_Message_TopicValue', N'MessageId', N'TopicValue', cast(null as sysname), 2, 0, 1),
+            (N'dbo.ProviderPublicationTopics', N'UQ_ProviderPublicationTopics_Message_TopicValue', N'MessageId', N'TopicValue', cast(null as sysname), 2, 0, 1),
+            (N'dbo.NotificationTopics', N'UQ_NotificationTopics_Notification_TopicValue', N'NotificationId', N'TopicValue', cast(null as sysname), 2, 0, 1)
+    ) expected(TableName, IndexName, FirstKeyColumn, SecondKeyColumn, IncludedColumn, KeyColumnCount, IncludedColumnCount, IsUnique)
+    where not exists
+    (
+        select 1
+        from sys.indexes indexDefinition
+        where indexDefinition.object_id = object_id(expected.TableName)
+          and indexDefinition.name = expected.IndexName
+          and indexDefinition.is_unique = expected.IsUnique
+          and indexDefinition.is_disabled = 0
+          and indexDefinition.is_hypothetical = 0
+          and indexDefinition.has_filter = 0
+          and expected.KeyColumnCount =
+          (
+              select count(*)
+              from sys.index_columns keyColumn
+              where keyColumn.object_id = indexDefinition.object_id
+                and keyColumn.index_id = indexDefinition.index_id
+                and keyColumn.key_ordinal > 0
+          )
+          and expected.IncludedColumnCount =
+          (
+              select count(*)
+              from sys.index_columns includedColumn
+              where includedColumn.object_id = indexDefinition.object_id
+                and includedColumn.index_id = indexDefinition.index_id
+                and includedColumn.is_included_column = 1
+          )
+          and exists
+          (
+              select 1
+              from sys.index_columns firstKey
+              inner join sys.columns firstKeyDefinition
+                      on firstKeyDefinition.object_id = firstKey.object_id
+                     and firstKeyDefinition.column_id = firstKey.column_id
+              where firstKey.object_id = indexDefinition.object_id
+                and firstKey.index_id = indexDefinition.index_id
+                and firstKey.key_ordinal = 1
+                and firstKeyDefinition.name = expected.FirstKeyColumn
+          )
+          and
+          (
+              expected.SecondKeyColumn is null
+              or exists
+              (
+                  select 1
+                  from sys.index_columns secondKey
+                  inner join sys.columns secondKeyDefinition
+                          on secondKeyDefinition.object_id = secondKey.object_id
+                         and secondKeyDefinition.column_id = secondKey.column_id
+                  where secondKey.object_id = indexDefinition.object_id
+                    and secondKey.index_id = indexDefinition.index_id
+                    and secondKey.key_ordinal = 2
+                    and secondKeyDefinition.name = expected.SecondKeyColumn
+              )
+          )
+          and
+          (
+              expected.IncludedColumn is null
+              or exists
+              (
+                  select 1
+                  from sys.index_columns includedColumn
+                  inner join sys.columns includedColumnDefinition
+                          on includedColumnDefinition.object_id = includedColumn.object_id
+                         and includedColumnDefinition.column_id = includedColumn.column_id
+                  where includedColumn.object_id = indexDefinition.object_id
+                    and includedColumn.index_id = indexDefinition.index_id
+                    and includedColumn.is_included_column = 1
+                    and includedColumnDefinition.name = expected.IncludedColumn
+              )
+          )
+    )
+)
+    throw 53082, 'Validation failed: one or more TopicValue indexes are missing, disabled, filtered, or have an unexpected key/include definition.', 1;
+
+if exists
+(
+    select 1
+    from
+    (
+        values
+            (N'FK_ConsumerSubscriptionSessionTopics_Sessions', N'dbo.ConsumerSubscriptionSessionTopics', N'SessionId', N'dbo.ConsumerSubscriptionSessions', N'SessionId'),
+            (N'FK_ProviderRequestSessionTopics_Sessions', N'dbo.ProviderRequestSessionTopics', N'ProviderRequestSessionId', N'dbo.ProviderRequestSessions', N'SessionId'),
+            (N'FK_ConsumerRequestTopics_Requests', N'dbo.ConsumerRequestTopics', N'MessageId', N'dbo.ConsumerRequests', N'MessageId'),
+            (N'FK_ProviderPublicationTopics_Publications', N'dbo.ProviderPublicationTopics', N'MessageId', N'dbo.ProviderPublications', N'MessageId'),
+            (N'FK_NotificationTopics_Notifications', N'dbo.NotificationTopics', N'NotificationId', N'dbo.Notifications', N'NotificationId')
+    ) expected(ForeignKeyName, ChildTable, ChildColumn, ParentTable, ParentColumn)
+    where not exists
+    (
+        select 1
+        from sys.foreign_keys foreignKeyDefinition
+        where foreignKeyDefinition.name = expected.ForeignKeyName
+          and foreignKeyDefinition.parent_object_id = object_id(expected.ChildTable)
+          and foreignKeyDefinition.referenced_object_id = object_id(expected.ParentTable)
+          and foreignKeyDefinition.delete_referential_action = 0
+          and foreignKeyDefinition.is_disabled = 0
+          and foreignKeyDefinition.is_not_trusted = 0
+          and 1 =
+          (
+              select count(*)
+              from sys.foreign_key_columns relationshipColumn
+              where relationshipColumn.constraint_object_id = foreignKeyDefinition.object_id
+          )
+          and exists
+          (
+              select 1
+              from sys.foreign_key_columns relationshipColumn
+              inner join sys.columns childColumnDefinition
+                      on childColumnDefinition.object_id = relationshipColumn.parent_object_id
+                     and childColumnDefinition.column_id = relationshipColumn.parent_column_id
+              inner join sys.columns parentColumnDefinition
+                      on parentColumnDefinition.object_id = relationshipColumn.referenced_object_id
+                     and parentColumnDefinition.column_id = relationshipColumn.referenced_column_id
+              where relationshipColumn.constraint_object_id = foreignKeyDefinition.object_id
+                and childColumnDefinition.name = expected.ChildColumn
+                and parentColumnDefinition.name = expected.ParentColumn
+          )
+    )
+)
+    throw 53083, 'Validation failed: one or more topic ownership foreign keys are missing, disabled, untrusted, cascading, or target unexpected tables/columns.', 1;
+
 if not exists (select 1 from sys.key_constraints where parent_object_id = object_id(N'dbo.Channels') and name = N'PK_Channels' and type = N'PK')
     throw 53004, 'Validation failed: PK_Channels is missing.', 1;
 

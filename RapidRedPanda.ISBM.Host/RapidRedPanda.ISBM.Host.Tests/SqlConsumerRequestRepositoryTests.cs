@@ -17,6 +17,26 @@ public sealed class SqlConsumerRequestRepositoryTests
     }
 
     [Fact]
+    public async Task PostRequestSource_DeduplicatesTopicsBeforeRepositoryInsert()
+    {
+        string source = await ReadHostFileAsync("Services", "ConsumerRequestSessionService.cs");
+
+        Assert.Contains("TopicSelectionRules.TryValidateAndDeduplicate(topics, out validatedTopics)", source, StringComparison.Ordinal);
+        Assert.Contains("envelope.Topics", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PostingServices_RetainThirtyTwoTopicMaximum()
+    {
+        string consumerRequestSource = await ReadHostFileAsync("Services", "ConsumerRequestSessionService.cs");
+        string providerPublicationSource = await ReadHostFileAsync("Services", "ProviderPublicationSessionService.cs");
+        const string maximumCheck = "validatedTopics!.Count <= PublicationRoutingProperties.MaxPublicationTopics";
+
+        Assert.Contains(maximumCheck, consumerRequestSource, StringComparison.Ordinal);
+        Assert.Contains(maximumCheck, providerPublicationSource, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RequestNotificationSource_UsesExpectedRecipientEligibility()
     {
         string source = await ReadHostFileAsync("Data", "SqlConsumerRequestRepository.cs");

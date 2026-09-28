@@ -5,11 +5,17 @@ docs/
 RapidRedPanda.ISBM.Management.Web/
 RapidRedPanda.ISBM.Management.Web.Tests/
 
-# Database scripts: track only the production fresh-install schema
+# Database scripts: track production install, migration, and validation SQL sources
 RapidRedPanda.ISBM.Host/Database/Scripts/*
 !RapidRedPanda.ISBM.Host/Database/Scripts/Install/
 RapidRedPanda.ISBM.Host/Database/Scripts/Install/*
 !RapidRedPanda.ISBM.Host/Database/Scripts/Install/002_CreatePhaseOneSchema.sql
+!RapidRedPanda.ISBM.Host/Database/Scripts/Migrations/
+RapidRedPanda.ISBM.Host/Database/Scripts/Migrations/*
+!RapidRedPanda.ISBM.Host/Database/Scripts/Migrations/*.sql
+!RapidRedPanda.ISBM.Host/Database/Scripts/Validation/
+RapidRedPanda.ISBM.Host/Database/Scripts/Validation/*
+!RapidRedPanda.ISBM.Host/Database/Scripts/Validation/*.sql
 
 # Local SQL Server database files and active database directory
 RapidRedPanda.ISBM.Host/Database/Active/

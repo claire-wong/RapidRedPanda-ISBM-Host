@@ -202,7 +202,7 @@ begin try
             constraint DF_ConsumerSubscriptionSessionTopics_Id default newid(),
         SessionId uniqueidentifier not null,
         TopicOrdinal int not null,
-        TopicValue nvarchar(512) not null,
+        TopicValue nvarchar(512) collate Latin1_General_100_BIN2 not null,
         CreatedUtc datetime2(7) not null
             constraint DF_ConsumerSubscriptionSessionTopics_CreatedUtc default sysutcdatetime(),
         RowVersion rowversion not null,
@@ -274,7 +274,7 @@ begin try
             constraint DF_ProviderRequestSessionTopics_Id default newid(),
         ProviderRequestSessionId uniqueidentifier not null,
         TopicOrdinal int not null,
-        TopicValue nvarchar(512) not null,
+        TopicValue nvarchar(512) collate Latin1_General_100_BIN2 not null,
         CreatedUtc datetime2(7) not null
             constraint DF_ProviderRequestSessionTopics_CreatedUtc default sysutcdatetime(),
         RowVersion rowversion not null,
@@ -356,7 +356,7 @@ begin try
     (
         MessageId uniqueidentifier not null,
         TopicOrdinal int not null,
-        TopicValue nvarchar(512) not null,
+        TopicValue nvarchar(512) collate Latin1_General_100_BIN2 not null,
 
         constraint PK_ConsumerRequestTopics
             primary key clustered (MessageId, TopicOrdinal),
@@ -365,6 +365,9 @@ begin try
             foreign key (MessageId)
             references dbo.ConsumerRequests (MessageId)
     );
+
+    create unique index UQ_ConsumerRequestTopics_Message_TopicValue
+    on dbo.ConsumerRequestTopics (MessageId, TopicValue);
 
     create table dbo.ProviderPublicationSessions
     (
@@ -431,7 +434,7 @@ begin try
     (
         MessageId uniqueidentifier not null,
         TopicOrdinal int not null,
-        TopicValue nvarchar(512) not null,
+        TopicValue nvarchar(512) collate Latin1_General_100_BIN2 not null,
 
         constraint PK_ProviderPublicationTopics
             primary key clustered (MessageId, TopicOrdinal),
@@ -591,7 +594,7 @@ begin try
     (
         NotificationId uniqueidentifier not null,
         TopicOrdinal int not null,
-        TopicValue nvarchar(512) not null,
+        TopicValue nvarchar(512) collate Latin1_General_100_BIN2 not null,
 
         constraint PK_NotificationTopics
             primary key clustered (NotificationId, TopicOrdinal),
@@ -793,6 +796,11 @@ begin try
     (
         N'SessionFilterExpressions-001',
         N'Adds nullable JSON storage for accepted session filterExpressions.',
+        N'002_CreatePhaseOneSchema.sql'
+    ),
+    (
+        N'TopicValueSemantics-001',
+        N'Aligns topic equality with binary code-point semantics and prevents duplicate consumer request topics.',
         N'002_CreatePhaseOneSchema.sql'
     );
 

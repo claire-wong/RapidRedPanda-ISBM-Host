@@ -4,6 +4,32 @@ public static class TopicSelectionRules
 {
     private const char TopicKeyDelimiter = '|';
 
+    public static bool TryValidateAndDeduplicate(
+        IReadOnlyList<string?>? topics,
+        out IReadOnlyList<string>? validatedTopics)
+    {
+        validatedTopics = null;
+        if (topics is null || topics.Count == 0)
+        {
+            return false;
+        }
+
+        List<string> topicValues = [];
+        foreach (string? topic in topics)
+        {
+            if (string.IsNullOrWhiteSpace(topic) ||
+                !string.Equals(topic, topic.Trim(), StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            topicValues.Add(topic);
+        }
+
+        validatedTopics = DeduplicateTopics(topicValues);
+        return validatedTopics.Count > 0;
+    }
+
     public static IReadOnlyList<string> DeduplicateTopics(IReadOnlyList<string> topics)
     {
         List<string> deduplicatedTopics = [];

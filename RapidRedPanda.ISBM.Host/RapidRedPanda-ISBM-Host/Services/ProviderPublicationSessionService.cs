@@ -436,33 +436,8 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
         IReadOnlyList<string?>? topics,
         out IReadOnlyList<string>? validatedTopics)
     {
-        validatedTopics = null;
-        if (topics is null || topics.Count == 0)
-        {
-            return false;
-        }
-
-        List<string> topicValues = [];
-        foreach (string? topic in topics)
-        {
-            if (string.IsNullOrWhiteSpace(topic))
-            {
-                return false;
-            }
-
-            topicValues.Add(topic);
-        }
-
-        try
-        {
-            validatedTopics = TopicSelectionRules.DeduplicateTopics(topicValues);
-            return validatedTopics.Count > 0 &&
-                validatedTopics.Count <= PublicationRoutingProperties.MaxPublicationTopics;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
+        return TopicSelectionRules.TryValidateAndDeduplicate(topics, out validatedTopics) &&
+            validatedTopics!.Count <= PublicationRoutingProperties.MaxPublicationTopics;
     }
 
     private static bool TryParseExpiry(string? expiry, out TimeSpan? timeToLive)

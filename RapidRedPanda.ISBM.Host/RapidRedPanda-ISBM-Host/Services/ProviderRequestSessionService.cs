@@ -203,8 +203,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
         CancellationToken cancellationToken)
     {
         if (!TryDecodeAndValidateChannelUri(channelId, out string decodedChannelUri) ||
-            topics.Count == 0 ||
-            topics.Any(string.IsNullOrEmpty))
+            !TopicSelectionRules.TryValidateAndDeduplicate(topics, out IReadOnlyList<string>? requestedTopics))
         {
             return OpenProviderRequestSessionResult.Failure(OpenProviderRequestSessionFailureKind.ParameterFault);
         }
@@ -214,10 +213,9 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
             return OpenProviderRequestSessionResult.Failure(OpenProviderRequestSessionFailureKind.ParameterFault);
         }
 
-        IReadOnlyList<string> requestedTopics = TopicSelectionRules.DeduplicateTopics(topics);
         try
         {
-            _ = TopicSelectionRules.BuildAzureSqlFilter(requestedTopics);
+            _ = TopicSelectionRules.BuildAzureSqlFilter(requestedTopics!);
         }
         catch (ArgumentException)
         {
@@ -254,7 +252,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
             await _subscriptionTransport.CreateSubscriptionAsync(
                 channel.AzureTopicName,
                 azureSubscriptionName,
-                requestedTopics,
+                requestedTopics!,
                 cancellationToken);
             azureSubscriptionCreated = true;
         }
@@ -270,7 +268,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
                 channel.ChannelId,
                 channel.AzureTopicName,
                 azureSubscriptionName,
-                requestedTopics,
+                requestedTopics!,
                 channel.AuthenticatedTokenUsername,
                 normalizedListenerUrl,
                 // FilterExpressions are accepted and persisted for ISBM protocol compatibility.

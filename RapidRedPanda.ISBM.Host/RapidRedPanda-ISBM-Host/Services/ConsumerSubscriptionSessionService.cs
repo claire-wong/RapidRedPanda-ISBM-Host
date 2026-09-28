@@ -189,15 +189,14 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
             return OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.ParameterFault);
         }
 
-        if (topics.Count == 0 || topics.Any(string.IsNullOrEmpty))
+        if (!TopicSelectionRules.TryValidateAndDeduplicate(topics, out IReadOnlyList<string>? requestedTopics))
         {
             return OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.ParameterFault);
         }
 
-        IReadOnlyList<string> requestedTopics = TopicSelectionRules.DeduplicateTopics(topics);
         try
         {
-            _ = TopicSelectionRules.BuildAzureSqlFilter(requestedTopics);
+            _ = TopicSelectionRules.BuildAzureSqlFilter(requestedTopics!);
         }
         catch (ArgumentException)
         {
@@ -272,7 +271,7 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
             await _subscriptionTransport.CreateSubscriptionAsync(
                 channel.AzureTopicName,
                 azureSubscriptionName,
-                requestedTopics,
+                requestedTopics!,
                 cancellationToken);
             azureSubscriptionCreated = true;
         }
@@ -296,7 +295,7 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
                 channel.ChannelId,
                 channel.AzureTopicName,
                 azureSubscriptionName,
-                requestedTopics,
+                requestedTopics!,
                 channel.AuthenticatedTokenUsername,
                 normalizedListenerUrl,
                 // FilterExpressions are accepted and persisted for ISBM protocol compatibility.
