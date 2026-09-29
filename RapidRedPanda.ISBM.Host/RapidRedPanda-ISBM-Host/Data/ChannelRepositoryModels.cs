@@ -172,6 +172,8 @@ public sealed record ValidateChannelCredentialsResult(
 public enum SecurityTokenMutationFailureKind
 {
     NotFound,
+    OpenChannel,
+    SecurityTokenNotFound,
     DatabaseFailure
 }
 

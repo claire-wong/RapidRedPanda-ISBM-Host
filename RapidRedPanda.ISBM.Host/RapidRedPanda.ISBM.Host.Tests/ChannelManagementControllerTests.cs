@@ -15,7 +15,7 @@ public sealed class ChannelManagementControllerTests
     private const string EncodedComplexChannelUri = "%2FRobot%20Fleet%2FBall%20Shooter%2FDrive%20System%2FISO18435%3AD1.2%2FRequest";
 
     [Fact]
-    public async Task GetChannel_ExistingChannel_ReturnsChannelWithSecurityTokenMetadata()
+    public async Task GetChannel_ExistingChannel_OmitsSecurityTokensFromResponse()
     {
         CapturingChannelRepository repository = new(DeleteChannelResult.Success())
         {
@@ -32,13 +32,13 @@ public sealed class ChannelManagementControllerTests
         IActionResult result = await controller.GetChannel(EncodedComplexChannelUri, CancellationToken.None);
 
         OkObjectResult ok = Assert.IsType<OkObjectResult>(result);
-        ChannelDetailResponse response = Assert.IsType<ChannelDetailResponse>(ok.Value);
+        ChannelResponse response = Assert.IsType<ChannelResponse>(ok.Value);
         Assert.Equal(ComplexChannelUri, response.Uri);
         Assert.Equal("Request", response.ChannelType);
         Assert.Equal("description", response.Description);
-        SecurityTokenResponse token = Assert.Single(response.SecurityTokens);
-        Assert.Equal("UsernameToken", token.Type);
-        Assert.Equal("Tester21", token.Username);
+        string json = System.Text.Json.JsonSerializer.Serialize(response);
+        Assert.DoesNotContain("securityTokens", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("Tester21", json, StringComparison.Ordinal);
         Assert.Equal(ComplexChannelUri, repository.GetChannelUri);
     }
 
@@ -187,6 +187,30 @@ public sealed class ChannelManagementControllerTests
         Assert.Equal("12345", token.Password);
     }
 
+    [Fact]
+    public async Task CreateChannel_DuplicateAndDistinctTokens_PersistsDistinctSet()
+    {
+        CapturingChannelRepository repository = new(DeleteChannelResult.Success());
+        ChannelManagementServicelController controller = CreateController(repository);
+        SetJsonBody(controller, """
+            {
+              "uri": "/dedupe-test",
+              "channelType": "Publication",
+              "securityTokens": [
+                { "username": "Alice", "password": "same" },
+                { "username": " alice ", "password": "same" },
+                { "username": "Bob", "password": "different" }
+              ]
+            }
+            """);
+
+        IActionResult result = await controller.CreateChannel(CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status201Created, Assert.IsType<ObjectResult>(result).StatusCode);
+        Assert.Equal(2, repository.CreatedTokens.Count);
+        Assert.Equal(["ALICE", "BOB"], repository.CreatedTokens.Select(token => token.NormalizedUsername));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData(" ")]
@@ -328,6 +352,22 @@ public sealed class ChannelManagementControllerTests
         Assert.Equal("ChannelFault", fault.Fault);
     }
 
+    [Fact]
+    public async Task AddSecurityTokens_OpenChannel_ReturnsOperationFault()
+    {
+        CapturingChannelRepository repository = new(DeleteChannelResult.Success())
+        {
+            AddTokensResult = SecurityTokenMutationResult.Failure(SecurityTokenMutationFailureKind.OpenChannel, "Open channel.")
+        };
+        ChannelManagementServicelController controller = CreateController(repository);
+        SetJsonBody(controller, ValidFlatTokenBody());
+
+        IActionResult result = await controller.AddSecurityTokens("%2Fopen", CancellationToken.None);
+
+        ConflictObjectResult conflict = Assert.IsType<ConflictObjectResult>(result);
+        Assert.Equal("OperationFault", Assert.IsType<FaultResponse>(conflict.Value).Fault);
+    }
+
     [Theory]
     [InlineData("""{"securityTokens":[{"type":"OtherToken","username":"Tester21","password":"fake-password"}]}""")]
     [InlineData("""{"securityTokens":[{"type":"UsernameToken","password":"fake-password"}]}""")]
@@ -460,18 +500,21 @@ public sealed class ChannelManagementControllerTests
     }
 
     [Fact]
-    public async Task RemoveSecurityTokens_AbsentTokenRepositorySuccess_ReturnsNoContent()
+    public async Task RemoveSecurityTokens_AbsentToken_ReturnsSecurityTokenFault()
     {
         CapturingChannelRepository repository = new(DeleteChannelResult.Success())
         {
-            RemoveTokensResult = SecurityTokenMutationResult.Success()
+            RemoveTokensResult = SecurityTokenMutationResult.Failure(
+                SecurityTokenMutationFailureKind.SecurityTokenNotFound,
+                "Missing token.")
         };
         ChannelManagementServicelController controller = CreateController(repository);
         SetJsonBody(controller, ValidFlatTokenBody());
 
         IActionResult result = await controller.RemoveSecurityTokens("%2Ftest1", CancellationToken.None);
 
-        Assert.IsType<NoContentResult>(result);
+        ConflictObjectResult conflict = Assert.IsType<ConflictObjectResult>(result);
+        Assert.Equal("SecurityTokenFault", Assert.IsType<FaultResponse>(conflict.Value).Fault);
     }
 
     [Fact]

@@ -80,7 +80,10 @@ namespace RapidRedPanda.ISBM.Host.Controllers
 
             if (result.Succeeded && result.Channel is not null)
             {
-                return Ok(ToChannelDetailResponse(result.Channel));
+                return Ok(new ChannelResponse(
+                    result.Channel.ChannelUri,
+                    result.Channel.ChannelType,
+                    result.Channel.Description));
             }
 
             return result.FailureKind switch
@@ -146,7 +149,7 @@ namespace RapidRedPanda.ISBM.Host.Controllers
                     channelUri,
                     request.ChannelType,
                     request.Description,
-                    parsedTokens.Select(token => new ChannelCreateToken(token.Username, token.NormalizedUsername, token.Password)).ToArray(),
+                    ToChannelCreateTokens(parsedTokens),
                     cancellationToken);
             }
             catch (Exception exception)
@@ -258,6 +261,7 @@ namespace RapidRedPanda.ISBM.Host.Controllers
             return result.FailureKind switch
             {
                 SecurityTokenMutationFailureKind.NotFound => NotFound(new FaultResponse("ChannelFault")),
+                SecurityTokenMutationFailureKind.OpenChannel => Conflict(new FaultResponse("OperationFault")),
                 _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
             };
         }
@@ -316,6 +320,7 @@ namespace RapidRedPanda.ISBM.Host.Controllers
             return result.FailureKind switch
             {
                 SecurityTokenMutationFailureKind.NotFound => NotFound(new FaultResponse("ChannelFault")),
+                SecurityTokenMutationFailureKind.SecurityTokenNotFound => Conflict(new FaultResponse("SecurityTokenFault")),
                 _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
             };
         }
@@ -350,20 +355,11 @@ namespace RapidRedPanda.ISBM.Host.Controllers
             return ChannelValidationRules.IsValidChannelUri(decodedChannelUri);
         }
 
-        private static ChannelDetailResponse ToChannelDetailResponse(ChannelDetailData channel)
-        {
-            return new ChannelDetailResponse(
-                channel.ChannelUri,
-                channel.ChannelType,
-                channel.Description,
-                channel.SecurityTokens
-                    .Select(token => new SecurityTokenResponse(token.TokenType, token.Username))
-                    .ToArray());
-        }
-
         private static IReadOnlyList<ChannelCreateToken> ToChannelCreateTokens(IReadOnlyList<UsernameTokenInput> parsedTokens)
         {
             return parsedTokens
+                .GroupBy(token => token.NormalizedUsername, StringComparer.Ordinal)
+                .Select(group => group.First())
                 .Select(token => new ChannelCreateToken(token.Username, token.NormalizedUsername, token.Password))
                 .ToArray();
         }

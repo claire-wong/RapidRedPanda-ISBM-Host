@@ -45,6 +45,7 @@
     <Compile Include="ChannelManagementControllerTests.cs" />
     <Compile Include="ConfigurationDiscoveryControllerTests.cs" />
     <Compile Include="PhaseOneAuthenticationCoverageTests.cs" />
+    <Compile Include="PhaseTwoLifecycleComplianceTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

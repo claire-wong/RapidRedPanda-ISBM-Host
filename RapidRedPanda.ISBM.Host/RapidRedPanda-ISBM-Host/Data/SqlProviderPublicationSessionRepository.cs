@@ -135,30 +135,57 @@ public sealed class SqlProviderPublicationSessionRepository : IProviderPublicati
         {
             await using SqlConnection connection = new(_connectionString);
             await connection.OpenAsync(cancellationToken);
+            await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
 
-            const string sql = """
-                update dbo.ProviderPublicationSessions
-                   set SessionState = @ClosedState,
-                       ClosedUtc = coalesce(ClosedUtc, sysutcdatetime())
-                 where SessionId = @SessionId
-                   and SessionState = @OpenState
-                   and ClosedUtc is null;
-                """;
-
-            await using SqlCommand command = new(sql, connection);
-            command.Parameters.Add("@ClosedState", SqlDbType.NVarChar, 32).Value = ProviderPublicationSessionStates.Closed;
-            command.Parameters.Add("@OpenState", SqlDbType.NVarChar, 32).Value = ProviderPublicationSessionStates.Open;
-            command.Parameters.Add("@SessionId", SqlDbType.UniqueIdentifier).Value = sessionId;
-
-            int affectedRows = await command.ExecuteNonQueryAsync(cancellationToken);
-            if (affectedRows == 0)
+            try
             {
-                return CloseProviderPublicationSessionResult.Failure(
-                    CloseProviderPublicationSessionFailureKind.NotFound,
-                    "Provider publication session was not found.");
-            }
+                const string sql = """
+                    declare @ClosedUtc datetime2(7) = sysutcdatetime();
 
-            return CloseProviderPublicationSessionResult.Success();
+                    update dbo.ProviderPublicationSessions
+                       set SessionState = @ClosedState,
+                           ClosedUtc = @ClosedUtc
+                     where SessionId = @SessionId
+                       and SessionState = @OpenState
+                       and ClosedUtc is null;
+
+                    if @@rowcount = 0
+                    begin
+                        select cast(0 as bit);
+                        return;
+                    end;
+
+                    update dbo.ProviderPublications
+                       set ExpiredUtc = @ClosedUtc
+                     where ProviderSessionId = @SessionId
+                       and ExpiredUtc is null
+                       and (EffectiveExpiryUtc is null or EffectiveExpiryUtc > @ClosedUtc);
+
+                    select cast(1 as bit);
+                    """;
+
+                await using SqlCommand command = new(sql, connection, transaction);
+                command.Parameters.Add("@ClosedState", SqlDbType.NVarChar, 32).Value = ProviderPublicationSessionStates.Closed;
+                command.Parameters.Add("@OpenState", SqlDbType.NVarChar, 32).Value = ProviderPublicationSessionStates.Open;
+                command.Parameters.Add("@SessionId", SqlDbType.UniqueIdentifier).Value = sessionId;
+
+                bool closed = Convert.ToBoolean(await command.ExecuteScalarAsync(cancellationToken));
+                if (!closed)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return CloseProviderPublicationSessionResult.Failure(
+                        CloseProviderPublicationSessionFailureKind.NotFound,
+                        "Provider publication session was not found.");
+                }
+
+                await transaction.CommitAsync(cancellationToken);
+                return CloseProviderPublicationSessionResult.Success();
+            }
+            catch
+            {
+                await RollbackQuietlyAsync(transaction, cancellationToken);
+                throw;
+            }
         }
         catch (SqlException exception)
         {

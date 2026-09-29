@@ -662,6 +662,29 @@ public sealed class SqlChannelRepository : IChannelRepository
                     return SecurityTokenMutationResult.Failure(SecurityTokenMutationFailureKind.NotFound, "Channel was not found.");
                 }
 
+                const string hasTokensSql = """
+                    select case when exists
+                    (
+                        select 1
+                        from dbo.ChannelSecurityTokens with (updlock, holdlock)
+                        where ChannelId = @ChannelId
+                          and DeletedUtc is null
+                    ) then 1 else 0 end;
+                    """;
+
+                await using (SqlCommand command = new(hasTokensSql, connection, transaction))
+                {
+                    command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = channelId.Value;
+                    bool hasTokens = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken)) == 1;
+                    if (!hasTokens)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        return SecurityTokenMutationResult.Failure(
+                            SecurityTokenMutationFailureKind.OpenChannel,
+                            "Security tokens cannot be added to an open channel.");
+                    }
+                }
+
                 foreach (ChannelCreateToken token in tokens)
                 {
                     const string insertSql = """
@@ -740,6 +763,39 @@ public sealed class SqlChannelRepository : IChannelRepository
                     return SecurityTokenMutationResult.Failure(SecurityTokenMutationFailureKind.NotFound, "Channel was not found.");
                 }
 
+                string[] normalizedUsernames = tokens
+                    .Select(token => token.NormalizedUsername)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray();
+
+                foreach (string normalizedUsername in normalizedUsernames)
+                {
+                    const string existsSql = """
+                        select case when exists
+                        (
+                            select 1
+                            from dbo.ChannelSecurityTokens with (updlock, holdlock)
+                            where ChannelId = @ChannelId
+                              and TokenType = @TokenType
+                              and NormalizedUsername = @NormalizedUsername
+                              and DeletedUtc is null
+                        ) then 1 else 0 end;
+                        """;
+
+                    await using SqlCommand command = new(existsSql, connection, transaction);
+                    command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = channelId.Value;
+                    command.Parameters.Add("@TokenType", SqlDbType.NVarChar, 64).Value = UsernameTokenType;
+                    command.Parameters.Add("@NormalizedUsername", SqlDbType.NVarChar, ChannelValidationRules.UsernameMaxLength).Value = normalizedUsername;
+                    bool exists = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken)) == 1;
+                    if (!exists)
+                    {
+                        await transaction.RollbackAsync(cancellationToken);
+                        return SecurityTokenMutationResult.Failure(
+                            SecurityTokenMutationFailureKind.SecurityTokenNotFound,
+                            "A requested security token is not assigned to the channel.");
+                    }
+                }
+
                 DateTime deletedUtc;
                 await using (SqlCommand command = new("select sysutcdatetime();", connection, transaction))
                 {
@@ -747,7 +803,7 @@ public sealed class SqlChannelRepository : IChannelRepository
                         ?? throw new InvalidOperationException("SQL Server did not return a delete timestamp."));
                 }
 
-                foreach (ChannelCreateToken token in tokens)
+                foreach (string normalizedUsername in normalizedUsernames)
                 {
                     const string updateSql = """
                         update dbo.ChannelSecurityTokens
@@ -762,7 +818,7 @@ public sealed class SqlChannelRepository : IChannelRepository
                     command.Parameters.Add("@DeletedUtc", SqlDbType.DateTime2).Value = deletedUtc;
                     command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = channelId.Value;
                     command.Parameters.Add("@TokenType", SqlDbType.NVarChar, 64).Value = UsernameTokenType;
-                    command.Parameters.Add("@NormalizedUsername", SqlDbType.NVarChar, ChannelValidationRules.UsernameMaxLength).Value = token.NormalizedUsername;
+                    command.Parameters.Add("@NormalizedUsername", SqlDbType.NVarChar, ChannelValidationRules.UsernameMaxLength).Value = normalizedUsername;
                     await command.ExecuteNonQueryAsync(cancellationToken);
                 }
 
