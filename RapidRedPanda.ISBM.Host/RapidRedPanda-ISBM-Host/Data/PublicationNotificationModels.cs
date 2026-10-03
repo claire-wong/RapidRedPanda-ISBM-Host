@@ -27,6 +27,7 @@ public static class PublicationNotificationSuppressionReasons
     public const string PublicationExpired = "PublicationExpired";
     public const string RequestMissing = "RequestMissing";
     public const string RequestExpired = "RequestExpired";
+    public const string ResponseRemoved = "ResponseRemoved";
     public const string ListenerMissing = "ListenerMissing";
     public const string DeliveryWindowExpired = "DeliveryWindowExpired";
     public const string InvalidNotificationShape = "InvalidNotificationShape";

@@ -46,6 +46,24 @@ public sealed class PublicationNotificationDispatcherTests
     }
 
     [Fact]
+    public async Task Dispatcher_ResponseDeliveredResult_MarksNotificationDelivered()
+    {
+        FakeRepository repository = new(ResponseNotification());
+        FakeClient client = new(PublicationNotificationDeliveryResult.Delivered(204));
+        PublicationNotificationDispatcher dispatcher = CreateDispatcher(repository, client);
+
+        await dispatcher.StartAsync(CancellationToken.None);
+        await WaitUntilAsync(() => repository.DeliveredNotifications.Count == 1);
+        await dispatcher.StopAsync(CancellationToken.None);
+
+        (Guid notificationId, _) = Assert.Single(repository.DeliveredNotifications);
+        Assert.Equal(repository.Notification.NotificationId, notificationId);
+        Assert.Equal(NotificationServiceTypes.Response, client.LastNotification?.ServiceType);
+        Assert.Equal(repository.Notification.ConsumerRequestSessionId, client.LastNotification?.ConsumerRequestSessionId);
+        Assert.Equal(repository.Notification.RequestMessageId, client.LastNotification?.RequestMessageId);
+    }
+
+    [Fact]
     public async Task Dispatcher_RetryableResult_SchedulesRetry()
     {
         FakeRepository repository = new(Notification(attemptCount: 1));
@@ -281,7 +299,7 @@ public sealed class PublicationNotificationDispatcherTests
             Options.Create(options ?? new PublicationNotificationOptions
             {
                 BatchSize = 20,
-                MaxConcurrency = 4,
+                MaxConcurrency = 1,
                 IdlePollIntervalSeconds = 1,
                 ErrorPollIntervalSeconds = 1,
                 LeaseDurationSeconds = 60,
@@ -366,6 +384,33 @@ public sealed class PublicationNotificationDispatcherTests
             IsEligible: true,
             SuppressionReason: null,
             IsDeliveryWindowExpired: false);
+    }
+
+    private static ClaimedPublicationNotification ResponseNotification(
+        Guid? consumerRequestSessionId = null,
+        Guid? requestMessageId = null,
+        int attemptCount = 1,
+        bool isEligible = true,
+        string? suppressionReason = null,
+        bool isDeliveryWindowExpired = false)
+    {
+        return new ClaimedPublicationNotification(
+            Guid.NewGuid(),
+            NotificationServiceTypes.Response,
+            Guid.NewGuid(),
+            requestMessageId ?? Guid.NewGuid(),
+            ConsumerSessionId: null,
+            ProviderRequestSessionId: null,
+            consumerRequestSessionId ?? Guid.NewGuid(),
+            "https://listener.example.com/isbm",
+            [],
+            attemptCount,
+            DateTime.UtcNow,
+            DateTime.UtcNow,
+            DateTime.UtcNow.AddDays(1),
+            isEligible,
+            suppressionReason,
+            isDeliveryWindowExpired);
     }
 
     private static ClaimedPublicationNotification MalformedRequestNotification()

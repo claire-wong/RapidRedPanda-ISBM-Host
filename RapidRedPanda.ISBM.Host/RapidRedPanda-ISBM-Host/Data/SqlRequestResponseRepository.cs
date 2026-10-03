@@ -1,4 +1,6 @@
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Options;
+using RapidRedPanda.ISBM.Host.Services;
 using System.Data;
 
 namespace RapidRedPanda.ISBM.Host.Data;
@@ -8,14 +10,17 @@ public sealed class SqlRequestResponseRepository : IRequestResponseRepository
     private const string ConnectionStringName = "ISBMHost";
 
     private readonly string _connectionString;
+    private readonly PublicationNotificationOptions _notificationOptions;
     private readonly ILogger<SqlRequestResponseRepository> _logger;
 
     public SqlRequestResponseRepository(
         IConfiguration configuration,
+        IOptions<PublicationNotificationOptions> notificationOptions,
         ILogger<SqlRequestResponseRepository> logger)
     {
         _connectionString = configuration.GetConnectionString(ConnectionStringName)
             ?? throw new InvalidOperationException($"Connection string '{ConnectionStringName}' is not configured.");
+        _notificationOptions = notificationOptions.Value;
         _logger = logger;
     }
 
@@ -64,53 +69,72 @@ public sealed class SqlRequestResponseRepository : IRequestResponseRepository
         {
             await using SqlConnection connection = new(_connectionString);
             await connection.OpenAsync(cancellationToken);
+            await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
 
-            const string sql = """
-                insert dbo.RequestResponses
-                (
-                    MessageId,
-                    RequestMessageId,
-                    ConsumerRequestSessionId,
-                    ProviderRequestSessionId,
-                    ChannelId,
-                    MessageContent,
-                    MediaType,
-                    Payload,
-                    PayloadKind,
-                    ContentEncoding,
-                    CreatedUtc
-                )
-                values
-                (
-                    @MessageId,
-                    @RequestMessageId,
-                    @ConsumerRequestSessionId,
-                    @ProviderRequestSessionId,
-                    @ChannelId,
-                    @MessageContent,
-                    @MediaType,
-                    @Payload,
-                    @PayloadKind,
-                    @ContentEncoding,
-                    @CreatedUtc
-                );
-                """;
+            try
+            {
+                const string sql = """
+                    insert dbo.RequestResponses
+                    (
+                        MessageId,
+                        RequestMessageId,
+                        ConsumerRequestSessionId,
+                        ProviderRequestSessionId,
+                        ChannelId,
+                        MessageContent,
+                        MediaType,
+                        Payload,
+                        PayloadKind,
+                        ContentEncoding,
+                        CreatedUtc
+                    )
+                    values
+                    (
+                        @MessageId,
+                        @RequestMessageId,
+                        @ConsumerRequestSessionId,
+                        @ProviderRequestSessionId,
+                        @ChannelId,
+                        @MessageContent,
+                        @MediaType,
+                        @Payload,
+                        @PayloadKind,
+                        @ContentEncoding,
+                        @CreatedUtc
+                    );
+                    """;
 
-            await using SqlCommand command = new(sql, connection);
-            command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = response.MessageId;
-            command.Parameters.Add("@RequestMessageId", SqlDbType.UniqueIdentifier).Value = response.RequestMessageId;
-            command.Parameters.Add("@ConsumerRequestSessionId", SqlDbType.UniqueIdentifier).Value = response.ConsumerRequestSessionId;
-            command.Parameters.Add("@ProviderRequestSessionId", SqlDbType.UniqueIdentifier).Value = response.ProviderRequestSessionId;
-            command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = response.ChannelId;
-            command.Parameters.Add("@MessageContent", SqlDbType.NVarChar, -1).Value = response.MessageContent.LegacyMessageContent;
-            command.Parameters.Add("@MediaType", SqlDbType.NVarChar, 256).Value = (object?)response.MessageContent.MediaType ?? DBNull.Value;
-            command.Parameters.Add("@Payload", SqlDbType.VarBinary, -1).Value = (object?)response.MessageContent.Payload ?? DBNull.Value;
-            command.Parameters.Add("@PayloadKind", SqlDbType.NVarChar, 16).Value = (object?)response.MessageContent.PayloadKind ?? DBNull.Value;
-            command.Parameters.Add("@ContentEncoding", SqlDbType.NVarChar, 64).Value = (object?)response.MessageContent.ContentEncoding ?? DBNull.Value;
-            command.Parameters.Add("@CreatedUtc", SqlDbType.DateTime2).Value = response.CreatedUtc;
-            await command.ExecuteNonQueryAsync(cancellationToken);
+                await using (SqlCommand command = new(sql, connection, transaction))
+                {
+                    command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = response.MessageId;
+                    command.Parameters.Add("@RequestMessageId", SqlDbType.UniqueIdentifier).Value = response.RequestMessageId;
+                    command.Parameters.Add("@ConsumerRequestSessionId", SqlDbType.UniqueIdentifier).Value = response.ConsumerRequestSessionId;
+                    command.Parameters.Add("@ProviderRequestSessionId", SqlDbType.UniqueIdentifier).Value = response.ProviderRequestSessionId;
+                    command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = response.ChannelId;
+                    command.Parameters.Add("@MessageContent", SqlDbType.NVarChar, -1).Value = response.MessageContent.LegacyMessageContent;
+                    command.Parameters.Add("@MediaType", SqlDbType.NVarChar, 256).Value = (object?)response.MessageContent.MediaType ?? DBNull.Value;
+                    command.Parameters.Add("@Payload", SqlDbType.VarBinary, -1).Value = (object?)response.MessageContent.Payload ?? DBNull.Value;
+                    command.Parameters.Add("@PayloadKind", SqlDbType.NVarChar, 16).Value = (object?)response.MessageContent.PayloadKind ?? DBNull.Value;
+                    command.Parameters.Add("@ContentEncoding", SqlDbType.NVarChar, 64).Value = (object?)response.MessageContent.ContentEncoding ?? DBNull.Value;
+                    command.Parameters.Add("@CreatedUtc", SqlDbType.DateTime2).Value = response.CreatedUtc;
+                    await command.ExecuteNonQueryAsync(cancellationToken);
+                }
 
-            return RequestResponseRepositoryResult.Success();
+                await InsertResponseNotificationAsync(
+                    connection,
+                    transaction,
+                    response,
+                    _notificationOptions.MaximumDeliveryAgeMinutes,
+                    cancellationToken);
+
+                await transaction.CommitAsync(cancellationToken);
+                return RequestResponseRepositoryResult.Success();
+            }
+            catch
+            {
+                await RollbackQuietlyAsync(transaction, cancellationToken);
+                throw;
+            }
         }
         catch (SqlException exception)
         {
@@ -231,8 +255,15 @@ public sealed class SqlRequestResponseRepository : IRequestResponseRepository
                 }
 
                 const string updateSql = """
+                    declare @RemovedResponses table
+                    (
+                        MessageId uniqueidentifier not null
+                    );
+
                     update response
                        set RemovedUtc = coalesce(response.RemovedUtc, sysutcdatetime())
+                    output inserted.MessageId
+                    into @RemovedResponses (MessageId)
                     from dbo.RequestResponses response
                     inner join dbo.OutstandingRequestResponses outstanding
                             on outstanding.RequestResponseId = response.RequestResponseId
@@ -243,11 +274,32 @@ public sealed class SqlRequestResponseRepository : IRequestResponseRepository
                     delete dbo.OutstandingRequestResponses
                     where ConsumerRequestSessionId = @ConsumerRequestSessionId
                       and RequestMessageId = @RequestMessageId;
+
+                    update notification
+                       set State = @SuppressedState,
+                           ResolvedUtc = sysutcdatetime(),
+                           ResolutionReason = @ResponseRemovedReason,
+                           LastError = null,
+                           NextAttemptUtc = null,
+                           LockOwner = null,
+                           LockedUntilUtc = null
+                    from dbo.Notifications notification
+                    inner join @RemovedResponses removed
+                            on removed.MessageId = notification.MessageId
+                    where notification.NotificationServiceType = @ResponseServiceType
+                      and notification.ConsumerRequestSessionId = @ConsumerRequestSessionId
+                      and notification.State in (@PendingState, @RetryScheduledState);
                     """;
 
                 await using SqlCommand command = new(updateSql, connection, transaction);
                 command.Parameters.Add("@ConsumerRequestSessionId", SqlDbType.UniqueIdentifier).Value = consumerRequestSessionId;
                 command.Parameters.Add("@RequestMessageId", SqlDbType.UniqueIdentifier).Value = requestMessageId;
+                command.Parameters.Add("@ResponseServiceType", SqlDbType.NVarChar, 32).Value = NotificationServiceTypes.Response;
+                command.Parameters.Add("@SuppressedState", SqlDbType.NVarChar, 32).Value = PublicationNotificationStates.Suppressed;
+                command.Parameters.Add("@PendingState", SqlDbType.NVarChar, 32).Value = PublicationNotificationStates.Pending;
+                command.Parameters.Add("@RetryScheduledState", SqlDbType.NVarChar, 32).Value = PublicationNotificationStates.RetryScheduled;
+                command.Parameters.Add("@ResponseRemovedReason", SqlDbType.NVarChar, 64).Value =
+                    PublicationNotificationSuppressionReasons.ResponseRemoved;
                 await command.ExecuteNonQueryAsync(cancellationToken);
 
                 await transaction.CommitAsync(cancellationToken);
@@ -266,6 +318,66 @@ public sealed class SqlRequestResponseRepository : IRequestResponseRepository
                 RequestResponseRepositoryFailureKind.DatabaseFailure,
                 "Database failure while removing response.");
         }
+    }
+
+    private static async Task InsertResponseNotificationAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        RequestResponseCreateData response,
+        int maximumDeliveryAgeMinutes,
+        CancellationToken cancellationToken)
+    {
+        const string notificationSql = """
+            declare @SqlUtcNow datetime2(7) = sysutcdatetime();
+
+            insert dbo.Notifications
+            (
+                NotificationId,
+                NotificationServiceType,
+                MessageId,
+                RequestMessageId,
+                ConsumerSubscriptionSessionId,
+                ProviderRequestSessionId,
+                ConsumerRequestSessionId,
+                ListenerUrl,
+                State,
+                NextAttemptUtc,
+                DeliveryDeadlineUtc
+            )
+            select
+                newid(),
+                @ResponseServiceType,
+                @MessageId,
+                @RequestMessageId,
+                null,
+                null,
+                session.SessionId,
+                session.ListenerUrl,
+                @PendingState,
+                @SqlUtcNow,
+                dateadd(minute, @MaximumDeliveryAgeMinutes, @SqlUtcNow)
+            from dbo.ConsumerRequestSessions session
+            where session.SessionId = @ConsumerRequestSessionId
+              and session.ListenerUrl is not null
+              and ltrim(rtrim(session.ListenerUrl)) <> N''
+              and not exists
+              (
+                  select 1
+                  from dbo.Notifications existing with (updlock, holdlock)
+                  where existing.MessageId = @MessageId
+                    and existing.ConsumerRequestSessionId = @ConsumerRequestSessionId
+                    and existing.NotificationServiceType = @ResponseServiceType
+              );
+            """;
+
+        await using SqlCommand command = new(notificationSql, connection, transaction);
+        command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = response.MessageId;
+        command.Parameters.Add("@RequestMessageId", SqlDbType.UniqueIdentifier).Value = response.RequestMessageId;
+        command.Parameters.Add("@ConsumerRequestSessionId", SqlDbType.UniqueIdentifier).Value = response.ConsumerRequestSessionId;
+        command.Parameters.Add("@ResponseServiceType", SqlDbType.NVarChar, 32).Value = NotificationServiceTypes.Response;
+        command.Parameters.Add("@PendingState", SqlDbType.NVarChar, 32).Value = PublicationNotificationStates.Pending;
+        command.Parameters.Add("@MaximumDeliveryAgeMinutes", SqlDbType.Int).Value = maximumDeliveryAgeMinutes;
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task<bool> RequestBelongsToSessionAsync(

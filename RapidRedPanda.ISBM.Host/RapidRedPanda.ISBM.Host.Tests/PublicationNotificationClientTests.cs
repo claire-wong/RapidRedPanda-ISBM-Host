@@ -41,6 +41,29 @@ public sealed class PublicationNotificationClientTests
         Assert.DoesNotContain("messageContent", handler.RequestBody, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task SendAsync_ResponseNotification_UsesConsumerRequestSessionAndRequestMessageIdOnly()
+    {
+        CapturingHandler handler = new(HttpStatusCode.NoContent);
+        PublicationNotificationClient client = CreateClient(handler);
+        Guid requestMessageId = Guid.NewGuid();
+        ClaimedPublicationNotification notification = Notification(
+            NotificationServiceTypes.Response,
+            consumerSessionId: null,
+            providerRequestSessionId: null,
+            requestMessageId: requestMessageId,
+            consumerRequestSessionId: Guid.NewGuid());
+
+        PublicationNotificationDeliveryResult result = await client.SendAsync(notification, CancellationToken.None);
+
+        Assert.Equal(PublicationNotificationDeliveryOutcome.Delivered, result.Outcome);
+        Assert.Equal(HttpMethod.Put, handler.Request?.Method);
+        Assert.Equal($"/base/notifications/{notification.ConsumerRequestSessionId:D}/{notification.MessageId:D}", handler.Request?.RequestUri?.AbsolutePath);
+        Assert.Equal($"{{\"requestMessageId\":\"{requestMessageId:D}\"}}", handler.RequestBody);
+        Assert.DoesNotContain("topics", handler.RequestBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("messageContent", handler.RequestBody, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(NotificationServiceTypes.Publication)]
     [InlineData(NotificationServiceTypes.Request)]
@@ -92,6 +115,22 @@ public sealed class PublicationNotificationClientTests
             NotificationServiceTypes.Request,
             consumerSessionId: null,
             providerRequestSessionId: null);
+
+        PublicationNotificationDeliveryResult result = await client.SendAsync(notification, CancellationToken.None);
+
+        Assert.Equal(PublicationNotificationDeliveryOutcome.TerminalFailure, result.Outcome);
+    }
+
+    [Fact]
+    public async Task SendAsync_MalformedResponseNotification_IsTerminalFailure()
+    {
+        PublicationNotificationClient client = CreateClient(new CapturingHandler(HttpStatusCode.NoContent));
+        ClaimedPublicationNotification notification = Notification(
+            NotificationServiceTypes.Response,
+            consumerSessionId: null,
+            providerRequestSessionId: null,
+            requestMessageId: null,
+            consumerRequestSessionId: Guid.NewGuid());
 
         PublicationNotificationDeliveryResult result = await client.SendAsync(notification, CancellationToken.None);
 
