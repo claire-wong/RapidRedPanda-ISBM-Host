@@ -29,7 +29,7 @@ public sealed class SqlRequestResponseRepositoryTests
         Assert.Contains("ConsumerRequestSessionId,", source, StringComparison.Ordinal);
         Assert.Contains("@MessageId", source, StringComparison.Ordinal);
         Assert.Contains("@RequestMessageId", source, StringComparison.Ordinal);
-        Assert.Contains("null,\n                null,\n                session.SessionId", source, StringComparison.Ordinal);
+        Assert.Contains("null,\r\n                null,\r\n                session.SessionId", source.ReplaceLineEndings("\r\n"), StringComparison.Ordinal);
         Assert.Contains("session.ListenerUrl", source, StringComparison.Ordinal);
         Assert.Contains("@PendingState", source, StringComparison.Ordinal);
         Assert.Contains("PublicationNotificationStates.Pending", source, StringComparison.Ordinal);
