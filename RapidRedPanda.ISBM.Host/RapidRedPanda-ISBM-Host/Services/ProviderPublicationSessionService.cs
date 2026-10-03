@@ -36,6 +36,7 @@ public enum OpenPublicationSessionFailureKind
 {
     ParameterFault,
     ChannelFault,
+    InvalidChannelType,
     SecurityTokenFault,
     OperationFault
 }
@@ -183,7 +184,7 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
             {
                 GetChannelForSubscriptionFailureKind.NotFound => OpenPublicationSessionResult.Failure(OpenPublicationSessionFailureKind.ChannelFault),
                 GetChannelForSubscriptionFailureKind.SecurityTokenInvalid => OpenPublicationSessionResult.Failure(OpenPublicationSessionFailureKind.SecurityTokenFault),
-                GetChannelForSubscriptionFailureKind.InvalidChannelType => OpenPublicationSessionResult.Failure(OpenPublicationSessionFailureKind.OperationFault),
+                GetChannelForSubscriptionFailureKind.InvalidChannelType => OpenPublicationSessionResult.Failure(OpenPublicationSessionFailureKind.InvalidChannelType),
                 _ => OpenPublicationSessionResult.Failure(OpenPublicationSessionFailureKind.OperationFault)
             };
         }
@@ -350,7 +351,8 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
                     session.ChannelId,
                     envelope.Topics,
                     DateTime.UtcNow,
-                    timeToLive is TimeSpan ttl ? DateTime.UtcNow.Add(ttl) : null),
+                    timeToLive is TimeSpan ttl ? DateTime.UtcNow.Add(ttl) : null,
+                    SqlMessageContentAdapter.ToSql(messageContent)),
                 cancellationToken);
 
         if (!insertPublicationResult.Succeeded)
@@ -411,8 +413,8 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
 
         return expireResult.FailureKind switch
         {
-            ProviderPublicationRepositoryFailureKind.NotFound => ExpirePublicationResult.Failure(ExpirePublicationFailureKind.MessageFault),
-            ProviderPublicationRepositoryFailureKind.ChannelMismatch => ExpirePublicationResult.Failure(ExpirePublicationFailureKind.MessageFault),
+            ProviderPublicationRepositoryFailureKind.NotFound => ExpirePublicationResult.Success(),
+            ProviderPublicationRepositoryFailureKind.ChannelMismatch => ExpirePublicationResult.Success(),
             _ => ExpirePublicationResult.Failure(ExpirePublicationFailureKind.OperationFault)
         };
     }
@@ -450,7 +452,7 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
 
         if (string.IsNullOrWhiteSpace(expiry))
         {
-            return false;
+            return true;
         }
 
         try
@@ -458,7 +460,7 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
             TimeSpan parsedTimeToLive = XmlConvert.ToTimeSpan(expiry);
             if (parsedTimeToLive <= TimeSpan.Zero)
             {
-                return false;
+                return true;
             }
 
             timeToLive = parsedTimeToLive;

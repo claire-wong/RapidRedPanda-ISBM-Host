@@ -20,17 +20,20 @@ namespace RapidRedPanda.ISBM.Host.Controllers
         private readonly IChannelLifecycleService _channelLifecycleService;
         private readonly IUsernameTokenParser _usernameTokenParser;
         private readonly ILogger<ChannelManagementServicelController> _logger;
+        private readonly IIsbmOperationAuthorizationService? _authorization;
 
         public ChannelManagementServicelController(
             IChannelRepository channelRepository,
             IChannelLifecycleService channelLifecycleService,
             IUsernameTokenParser usernameTokenParser,
-            ILogger<ChannelManagementServicelController> logger)
+            ILogger<ChannelManagementServicelController> logger,
+            IIsbmOperationAuthorizationService? authorization = null)
         {
             _channelRepository = channelRepository;
             _channelLifecycleService = channelLifecycleService;
             _usernameTokenParser = usernameTokenParser;
             _logger = logger;
+            _authorization = authorization;
         }
 
         [HttpGet("isbm/2.0/channels")]
@@ -61,6 +64,9 @@ namespace RapidRedPanda.ISBM.Host.Controllers
                 return BadRequest(new FaultResponse("ParameterFault"));
             }
 
+            IActionResult? authorizationFailure = await AuthorizeChannelAsync(decodedChannelUri, cancellationToken);
+            if (authorizationFailure is not null) return authorizationFailure;
+
             GetChannelResult result;
             try
             {
@@ -74,7 +80,10 @@ namespace RapidRedPanda.ISBM.Host.Controllers
 
             if (result.Succeeded && result.Channel is not null)
             {
-                return Ok(ToChannelDetailResponse(result.Channel));
+                return Ok(new ChannelResponse(
+                    result.Channel.ChannelUri,
+                    result.Channel.ChannelType,
+                    result.Channel.Description));
             }
 
             return result.FailureKind switch
@@ -140,7 +149,7 @@ namespace RapidRedPanda.ISBM.Host.Controllers
                     channelUri,
                     request.ChannelType,
                     request.Description,
-                    parsedTokens.Select(token => new ChannelCreateToken(token.Username, token.NormalizedUsername, token.Password)).ToArray(),
+                    ToChannelCreateTokens(parsedTokens),
                     cancellationToken);
             }
             catch (Exception exception)
@@ -172,6 +181,9 @@ namespace RapidRedPanda.ISBM.Host.Controllers
                 return BadRequest(new FaultResponse("ParameterFault"));
             }
 
+            IActionResult? authorizationFailure = await AuthorizeChannelAsync(decodedChannelUri, cancellationToken);
+            if (authorizationFailure is not null) return authorizationFailure;
+
             DeleteChannelResult result;
             try
             {
@@ -202,6 +214,9 @@ namespace RapidRedPanda.ISBM.Host.Controllers
             {
                 return BadRequest(new FaultResponse("ParameterFault"));
             }
+
+            IActionResult? authorizationFailure = await AuthorizeChannelAsync(decodedChannelUri, cancellationToken);
+            if (authorizationFailure is not null) return authorizationFailure;
 
             SecurityTokensRequest? tokenRequest = await TryReadSecurityTokensRequestAsync(cancellationToken);
             if (tokenRequest is null)
@@ -246,6 +261,7 @@ namespace RapidRedPanda.ISBM.Host.Controllers
             return result.FailureKind switch
             {
                 SecurityTokenMutationFailureKind.NotFound => NotFound(new FaultResponse("ChannelFault")),
+                SecurityTokenMutationFailureKind.OpenChannel => Conflict(new FaultResponse("OperationFault")),
                 _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
             };
         }
@@ -257,6 +273,9 @@ namespace RapidRedPanda.ISBM.Host.Controllers
             {
                 return BadRequest(new FaultResponse("ParameterFault"));
             }
+
+            IActionResult? authorizationFailure = await AuthorizeChannelAsync(decodedChannelUri, cancellationToken);
+            if (authorizationFailure is not null) return authorizationFailure;
 
             SecurityTokensRequest? tokenRequest = await TryReadSecurityTokensRequestAsync(cancellationToken);
             if (tokenRequest is null)
@@ -301,6 +320,7 @@ namespace RapidRedPanda.ISBM.Host.Controllers
             return result.FailureKind switch
             {
                 SecurityTokenMutationFailureKind.NotFound => NotFound(new FaultResponse("ChannelFault")),
+                SecurityTokenMutationFailureKind.SecurityTokenNotFound => Conflict(new FaultResponse("SecurityTokenFault")),
                 _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
             };
         }
@@ -335,62 +355,31 @@ namespace RapidRedPanda.ISBM.Host.Controllers
             return ChannelValidationRules.IsValidChannelUri(decodedChannelUri);
         }
 
-        private static ChannelDetailResponse ToChannelDetailResponse(ChannelDetailData channel)
-        {
-            return new ChannelDetailResponse(
-                channel.ChannelUri,
-                channel.ChannelType,
-                channel.Description,
-                channel.SecurityTokens
-                    .Select(token => new SecurityTokenResponse(token.TokenType, token.Username))
-                    .ToArray());
-        }
-
         private static IReadOnlyList<ChannelCreateToken> ToChannelCreateTokens(IReadOnlyList<UsernameTokenInput> parsedTokens)
         {
             return parsedTokens
+                .GroupBy(token => token.NormalizedUsername, StringComparer.Ordinal)
+                .Select(group => group.First())
                 .Select(token => new ChannelCreateToken(token.Username, token.NormalizedUsername, token.Password))
                 .ToArray();
         }
 
         private ChannelCredentials? TryReadBasicCredentials()
         {
-            string? authorizationHeader = Request.Headers.Authorization.FirstOrDefault();
-            if (string.IsNullOrWhiteSpace(authorizationHeader))
+            return BasicAuthenticationCredentials.Read(Request, _usernameTokenParser);
+        }
+
+        private async Task<IActionResult?> AuthorizeChannelAsync(string channelUri, CancellationToken cancellationToken)
+        {
+            if (_authorization is null) return null;
+            IsbmAuthorizationOutcome outcome = await _authorization.AuthorizeChannelAsync(
+                channelUri, TryReadBasicCredentials(), cancellationToken);
+            return outcome switch
             {
-                return null;
-            }
-
-            if (!AuthenticationHeaderValue.TryParse(authorizationHeader, out AuthenticationHeaderValue? authenticationHeader) ||
-                !string.Equals(authenticationHeader.Scheme, "Basic", StringComparison.OrdinalIgnoreCase) ||
-                string.IsNullOrWhiteSpace(authenticationHeader.Parameter))
-            {
-                return null;
-            }
-
-            try
-            {
-                string decoded = Encoding.UTF8.GetString(Convert.FromBase64String(authenticationHeader.Parameter));
-                int separatorIndex = decoded.IndexOf(':', StringComparison.Ordinal);
-                if (separatorIndex < 0)
-                {
-                    return null;
-                }
-
-                string username = decoded[..separatorIndex];
-                string password = decoded[(separatorIndex + 1)..];
-
-                if (string.IsNullOrWhiteSpace(username) || string.IsNullOrEmpty(password))
-                {
-                    return null;
-                }
-
-                return new ChannelCredentials(_usernameTokenParser.NormalizeUsername(username), password);
-            }
-            catch (FormatException)
-            {
-                return null;
-            }
+                IsbmAuthorizationOutcome.Authorized => null,
+                IsbmAuthorizationOutcome.NotFoundOrUnauthorized => NotFound(new FaultResponse("ChannelFault")),
+                _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
+            };
         }
     }
 }

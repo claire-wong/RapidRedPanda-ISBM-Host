@@ -38,11 +38,15 @@ public sealed class FilterExpressionsTests
         yield return ["""{"topics":["Topic-A"],"filterExpressions":null}"""];
         yield return ["""{"topics":["Topic-A"],"filterExpressions":[]}"""];
         yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"expressionString":{"expression":"$.asset","language":"JsonPath"}}]}"""];
+        yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"expressionString":{"expression":"$.asset","language":"UnsupportedLanguage"}}]}"""];
+        yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"expressionString":{"expression":"","language":"JsonPath"}}]}"""];
+        yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"expressionString":{"expression":"","language":"UnsupportedLanguage"}}]}"""];
         yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"expressionString":{"expression":"$.asset","language":"JsonPath","languageVersion":"1.0"}}]}"""];
         yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"applicableMediaTypes":[],"expressionString":{"expression":"$.asset","language":"JsonPath"}}]}"""];
         yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"applicableMediaTypes":["application/json"],"expressionString":{"expression":"$.asset","language":"JsonPath"}}]}"""];
         yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"expressionString":{"expression":"$.asset","language":"JsonPath"},"namespaces":[]}]}"""];
         yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"expressionString":{"expression":"$.asset","language":"JsonPath"},"namespaces":[{"prefix":"x","name":"urn:example"}]}]}"""];
+        yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"expressionString":{"expression":"$.asset","language":"JsonPath"},"namespaces":[{"prefix":"x","name":"urn:example"},{"prefix":"x","name":"urn:example"}]}]}"""];
         yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"expressionString":{"expression":"$.asset","language":"JsonPath"}},{"applicableMediaTypes":["application/xml"],"expressionString":{"expression":"/x:asset","language":"XPath","languageVersion":""},"namespaces":[{"prefix":"x","name":"urn:example"}]}]}"""];
     }
 
@@ -62,6 +66,11 @@ public sealed class FilterExpressionsTests
         yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"expressionString":{"expression":"$.asset","language":"JsonPath"},"namespaces":[null]}]}"""];
         yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"expressionString":{"expression":"$.asset","language":"JsonPath"},"namespaces":[{"prefix":" ","name":"urn:example"}]}]}"""];
         yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"expressionString":{"expression":"$.asset","language":"JsonPath"},"namespaces":[{"prefix":"x","name":" "}]}]}"""];
+    }
+
+    public static IEnumerable<object[]> NamespaceConflictFilterExpressionBodies()
+    {
+        yield return ["""{"topics":["Topic-A"],"filterExpressions":[{"expressionString":{"expression":"$.asset","language":"JsonPath"},"namespaces":[{"prefix":"x","name":"urn:one"},{"prefix":"x","name":"urn:two"}]}]}"""];
     }
 
     [Theory]
@@ -128,6 +137,38 @@ public sealed class FilterExpressionsTests
         Assert.Null(service.OpenedTopics);
     }
 
+    [Theory]
+    [MemberData(nameof(NamespaceConflictFilterExpressionBodies))]
+    public async Task OpenSubscriptionSession_NamespaceConflict_ReturnsNamespaceFault(string body)
+    {
+        CapturingSubscriptionSessionService service = new();
+        ConsumerPublicationServiceController controller = CreateConsumerPublicationController(service);
+        SetJsonBody(controller, body);
+
+        IActionResult result = await controller.OpenSubscriptionSession("%2Fpublication%2Fchannel", CancellationToken.None);
+
+        BadRequestObjectResult badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        FaultResponse fault = Assert.IsType<FaultResponse>(badRequest.Value);
+        Assert.Equal("NamespaceFault", fault.Fault);
+        Assert.Null(service.OpenedTopics);
+    }
+
+    [Theory]
+    [MemberData(nameof(NamespaceConflictFilterExpressionBodies))]
+    public async Task OpenProviderRequestSession_NamespaceConflict_ReturnsNamespaceFault(string body)
+    {
+        CapturingProviderRequestSessionService service = new();
+        ProviderRequestServiceController controller = CreateProviderRequestController(service);
+        SetJsonBody(controller, body);
+
+        IActionResult result = await controller.OpenProviderRequestSession("%2Frequest%2Fchannel", CancellationToken.None);
+
+        BadRequestObjectResult badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        FaultResponse fault = Assert.IsType<FaultResponse>(badRequest.Value);
+        Assert.Equal("NamespaceFault", fault.Fault);
+        Assert.Null(service.OpenedTopics);
+    }
+
     [Fact]
     public void FilterExpressionJson_SerializesStandardShapeAndRejectsObjectMediaTypes()
     {
@@ -142,6 +183,66 @@ public sealed class FilterExpressionsTests
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<OpenSubscriptionSessionRequest>(
             """{"filterExpressions":[{"applicableMediaTypes":[{"mediaType":"application/json"}],"expressionString":{"expression":"$.asset","language":"JsonPath"}}]}""",
             SerializerOptions()));
+    }
+
+    [Fact]
+    public void FilterExpressionJson_DistinguishesNamespaceFaultFromParameterFault()
+    {
+        OpenSubscriptionSessionRequest namespaceConflict = JsonSerializer.Deserialize<OpenSubscriptionSessionRequest>(
+            """{"filterExpressions":[{"expressionString":{"expression":"$.asset","language":"JsonPath"},"namespaces":[{"prefix":"x","name":"urn:one"},{"prefix":"x","name":"urn:two"}]}]}""",
+            SerializerOptions())!;
+        OpenSubscriptionSessionRequest malformed = JsonSerializer.Deserialize<OpenSubscriptionSessionRequest>(
+            """{"filterExpressions":[{"expressionString":{"expression":"$.asset","language":"JsonPath"},"namespaces":[{"prefix":"x","name":" "}]}]}""",
+            SerializerOptions())!;
+
+        Assert.False(FilterExpressionJson.TrySerializeValid(
+            namespaceConflict.FilterExpressions,
+            out _,
+            out FilterExpressionValidationFailureKind? namespaceFailureKind));
+        Assert.Equal(FilterExpressionValidationFailureKind.NamespaceFault, namespaceFailureKind);
+
+        Assert.False(FilterExpressionJson.TrySerializeValid(
+            malformed.FilterExpressions,
+            out _,
+            out FilterExpressionValidationFailureKind? parameterFailureKind));
+        Assert.Equal(FilterExpressionValidationFailureKind.ParameterFault, parameterFailureKind);
+    }
+
+    [Fact]
+    public void FilterExpressionJson_EmptyExpressionIsAllowAllButWhitespaceOnlyIsMalformed()
+    {
+        OpenSubscriptionSessionRequest allowAll = JsonSerializer.Deserialize<OpenSubscriptionSessionRequest>(
+            """{"filterExpressions":[{"expressionString":{"expression":"","language":"UnsupportedLanguage"}}]}""",
+            SerializerOptions())!;
+        OpenSubscriptionSessionRequest whitespaceOnly = JsonSerializer.Deserialize<OpenSubscriptionSessionRequest>(
+            """{"filterExpressions":[{"expressionString":{"expression":" ","language":"UnsupportedLanguage"}}]}""",
+            SerializerOptions())!;
+
+        Assert.True(FilterExpressionJson.TrySerializeValid(allowAll.FilterExpressions, out string? storedJson));
+        AssertJsonEquivalent(
+            """[{"expressionString":{"expression":"","language":"UnsupportedLanguage"}}]""",
+            storedJson);
+
+        Assert.False(FilterExpressionJson.TrySerializeValid(
+            whitespaceOnly.FilterExpressions,
+            out _,
+            out FilterExpressionValidationFailureKind? failureKind));
+        Assert.Equal(FilterExpressionValidationFailureKind.ParameterFault, failureKind);
+    }
+
+    [Fact]
+    public void ConfigurationDiscovery_DeclaresContentFilteringUnsupportedWithEmptyLanguageList()
+    {
+        ConfigurationDiscoveryController controller = new(
+            Microsoft.Extensions.Options.Options.Create(new ConfigurationDiscoveryOptions()),
+            new NoOpUsernameTokenParser());
+
+        OkObjectResult result = Assert.IsType<OkObjectResult>(controller.GetSupportedOperations());
+        SupportedOperationsResponse response = Assert.IsType<SupportedOperationsResponse>(result.Value);
+
+        Assert.False(response.IsJsonFilteringEnabled);
+        Assert.False(response.IsXmlFilteringEnabled);
+        Assert.Empty(response.SupportedContentFilteringLanguages.ContentFilteringLanguages);
     }
 
     [Fact]

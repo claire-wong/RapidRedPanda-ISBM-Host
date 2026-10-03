@@ -44,6 +44,7 @@ public sealed class ProviderConsumerRequestRoundTripTests
         Assert.Equal(mediaType, sentMessage.ContentType);
         Assert.NotNull(requestRepository.LastInsertedRequest);
         Assert.Null(requestRepository.LastInsertedRequest.EffectiveExpiryUtc);
+        Assert.Equal("String", requestRepository.LastInsertedRequest.MessageContent.PayloadKind);
     }
 
     [Fact]
@@ -109,6 +110,61 @@ public sealed class ProviderConsumerRequestRoundTripTests
 
         JsonElement rest = RestMessageContentMapper.ToRestJsonElement(readResult.Request.MessageContent);
         Assert.Equal("AAECAwQ=", rest.GetProperty("content").GetString());
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("-PT1H")]
+    public async Task ConsumerPostRequest_BlankOrNegativeExpiry_IsTreatedAsNoExplicitExpiry(string expiry)
+    {
+        Guid channelId = Guid.NewGuid();
+        Guid consumerSessionId = Guid.NewGuid();
+        FakeConsumerRequestRepository requestRepository = new();
+        CapturingPublicationTransport publicationTransport = new();
+        ConsumerRequestSessionService consumerService = new(
+            new FakeChannelRepository(channelId, "isbm-request-topic"),
+            new FakeConsumerRequestSessionRepository(consumerSessionId, channelId),
+            requestRepository,
+            new UnusedRequestResponseRepository(),
+            publicationTransport,
+            NullLogger<ConsumerRequestSessionService>.Instance);
+
+        PostRequestResult result = await consumerService.PostRequestAsync(
+            consumerSessionId.ToString("D"),
+            ["Topic-A"],
+            InternalMessageContent.FromJson(BinaryData.FromString("""{"reading":42}""")),
+            expiry,
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Null(requestRepository.LastInsertedRequest?.EffectiveExpiryUtc);
+    }
+
+    [Fact]
+    public async Task ConsumerPostRequest_MalformedExpiry_ReturnsParameterFault()
+    {
+        Guid channelId = Guid.NewGuid();
+        Guid consumerSessionId = Guid.NewGuid();
+        FakeConsumerRequestRepository requestRepository = new();
+        ConsumerRequestSessionService consumerService = new(
+            new FakeChannelRepository(channelId, "isbm-request-topic"),
+            new FakeConsumerRequestSessionRepository(consumerSessionId, channelId),
+            requestRepository,
+            new UnusedRequestResponseRepository(),
+            new CapturingPublicationTransport(),
+            NullLogger<ConsumerRequestSessionService>.Instance);
+
+        PostRequestResult result = await consumerService.PostRequestAsync(
+            consumerSessionId.ToString("D"),
+            ["Topic-A"],
+            InternalMessageContent.FromJson(BinaryData.FromString("""{"reading":42}""")),
+            "not-a-duration",
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(PostRequestFailureKind.ParameterFault, result.FailureKind);
+        Assert.Null(requestRepository.LastInsertedRequest);
     }
 
     private sealed class FakeChannelRepository(Guid channelId, string azureTopicName) : IChannelRepository
@@ -213,6 +269,7 @@ public sealed class ProviderConsumerRequestRoundTripTests
     private sealed class FakeConsumerRequestRepository : IConsumerRequestRepository
     {
         public ConsumerRequestCreateData? LastInsertedRequest { get; private set; }
+        public Dictionary<Guid, ConsumerRequestData> OutstandingRequests { get; } = [];
 
         public Task<ConsumerRequestRepositoryResult> InsertPostedRequestAsync(ConsumerRequestCreateData request, CancellationToken cancellationToken)
         {
@@ -225,6 +282,44 @@ public sealed class ProviderConsumerRequestRoundTripTests
         public Task<RequestExpirationStateResult> IsRequestExpiredAsync(Guid messageId, Guid providerSessionId, CancellationToken cancellationToken)
         {
             return Task.FromResult(RequestExpirationStateResult.Success(false));
+        }
+
+        public Task<ReadConsumerRequestResult> GetOutstandingRequestAsync(Guid providerSessionId, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(
+                OutstandingRequests.TryGetValue(providerSessionId, out ConsumerRequestData? request)
+                    ? ReadConsumerRequestResult.Success(request)
+                    : ReadConsumerRequestResult.NoRequest());
+        }
+
+        public Task<ReadConsumerRequestResult> TryMarkRequestOutstandingAsync(
+            Guid messageId,
+            Guid providerSessionId,
+            Guid channelId,
+            IReadOnlyList<string> providerTopics,
+            CancellationToken cancellationToken)
+        {
+            if (LastInsertedRequest is null ||
+                LastInsertedRequest.MessageId != messageId ||
+                LastInsertedRequest.ChannelId != channelId)
+            {
+                return Task.FromResult(ReadConsumerRequestResult.NoRequest());
+            }
+
+            string? matchedTopic = LastInsertedRequest.Topics.FirstOrDefault(providerTopics.Contains);
+            if (matchedTopic is null)
+            {
+                return Task.FromResult(ReadConsumerRequestResult.NoRequest());
+            }
+
+            ConsumerRequestData request = new(
+                LastInsertedRequest.MessageId,
+                LastInsertedRequest.ConsumerSessionId,
+                LastInsertedRequest.ChannelId,
+                matchedTopic,
+                LastInsertedRequest.MessageContent);
+            OutstandingRequests[providerSessionId] = request;
+            return Task.FromResult(ReadConsumerRequestResult.Success(request));
         }
     }
 

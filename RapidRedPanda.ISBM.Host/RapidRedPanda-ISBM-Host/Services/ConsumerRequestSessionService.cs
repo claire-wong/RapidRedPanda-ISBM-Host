@@ -47,6 +47,7 @@ public enum OpenConsumerRequestSessionFailureKind
 {
     ParameterFault,
     ChannelFault,
+    InvalidChannelType,
     SecurityTokenFault,
     OperationFault
 }
@@ -243,6 +244,7 @@ public sealed class ConsumerRequestSessionService : IConsumerRequestSessionServi
             {
                 GetChannelForSubscriptionFailureKind.NotFound => OpenConsumerRequestSessionResult.Failure(OpenConsumerRequestSessionFailureKind.ChannelFault),
                 GetChannelForSubscriptionFailureKind.SecurityTokenInvalid => OpenConsumerRequestSessionResult.Failure(OpenConsumerRequestSessionFailureKind.SecurityTokenFault),
+                GetChannelForSubscriptionFailureKind.InvalidChannelType => OpenConsumerRequestSessionResult.Failure(OpenConsumerRequestSessionFailureKind.InvalidChannelType),
                 _ => OpenConsumerRequestSessionResult.Failure(OpenConsumerRequestSessionFailureKind.OperationFault)
             };
         }
@@ -365,7 +367,8 @@ public sealed class ConsumerRequestSessionService : IConsumerRequestSessionServi
                 session.ChannelId,
                 envelope.Topics,
                 createdUtc,
-                timeToLive is TimeSpan ttl ? createdUtc.Add(ttl) : null),
+                timeToLive is TimeSpan ttl ? createdUtc.Add(ttl) : null,
+                SqlMessageContentAdapter.ToSql(messageContent)),
             cancellationToken);
 
         if (!insertRequestResult.Succeeded)
@@ -590,7 +593,7 @@ public sealed class ConsumerRequestSessionService : IConsumerRequestSessionServi
 
         if (string.IsNullOrWhiteSpace(expiry))
         {
-            return false;
+            return true;
         }
 
         try
@@ -598,7 +601,7 @@ public sealed class ConsumerRequestSessionService : IConsumerRequestSessionServi
             TimeSpan parsedTimeToLive = XmlConvert.ToTimeSpan(expiry);
             if (parsedTimeToLive <= TimeSpan.Zero)
             {
-                return false;
+                return true;
             }
 
             timeToLive = parsedTimeToLive;

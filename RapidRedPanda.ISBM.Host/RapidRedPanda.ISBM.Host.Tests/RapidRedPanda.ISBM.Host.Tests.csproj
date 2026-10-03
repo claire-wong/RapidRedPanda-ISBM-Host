@@ -38,11 +38,20 @@
     <Compile Include="PublicationNotificationUriBuilderTests.cs" />
     <Compile Include="SessionCloseServiceTests.cs" />
     <Compile Include="SqlConsumerRequestRepositoryTests.cs" />
+    <Compile Include="SqlConsumerRequestSessionRepositoryTests.cs" />
+    <Compile Include="SqlRequestResponseRepositoryTests.cs" />
     <Compile Include="SqlPublicationNotificationRepositoryTests.cs" />
+    <Compile Include="ProviderPublicationExpirationTests.cs" />
     <Compile Include="PhaseOneSqlScriptTests.cs" />
     <Compile Include="PublicationTopicRoutingTests.cs" />
     <Compile Include="UsernameTokenParserTests.cs" />
     <Compile Include="ChannelManagementControllerTests.cs" />
+    <Compile Include="ConfigurationDiscoveryControllerTests.cs" />
+    <Compile Include="PhaseOneAuthenticationCoverageTests.cs" />
+    <Compile Include="PhaseTwoLifecycleComplianceTests.cs" />
+    <Compile Include="PhaseThreeDurableRequestLifecycleTests.cs" />
+    <Compile Include="PhaseFourRestFaultStatusTests.cs" />
+    <Compile Include="PhaseSevenComplianceRegressionTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

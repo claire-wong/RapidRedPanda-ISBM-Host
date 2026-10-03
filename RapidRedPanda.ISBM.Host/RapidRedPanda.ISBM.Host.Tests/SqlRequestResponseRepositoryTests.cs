@@ -29,7 +29,7 @@ public sealed class SqlRequestResponseRepositoryTests
         Assert.Contains("ConsumerRequestSessionId,", source, StringComparison.Ordinal);
         Assert.Contains("@MessageId", source, StringComparison.Ordinal);
         Assert.Contains("@RequestMessageId", source, StringComparison.Ordinal);
-        Assert.Contains("null,\n                null,\n                session.SessionId", source, StringComparison.Ordinal);
+        Assert.Contains("null,\r\n                null,\r\n                session.SessionId", source.ReplaceLineEndings("\r\n"), StringComparison.Ordinal);
         Assert.Contains("session.ListenerUrl", source, StringComparison.Ordinal);
         Assert.Contains("@PendingState", source, StringComparison.Ordinal);
         Assert.Contains("PublicationNotificationStates.Pending", source, StringComparison.Ordinal);
@@ -44,17 +44,11 @@ public sealed class SqlRequestResponseRepositoryTests
         string source = await ReadHostFileAsync("Data", "SqlRequestResponseRepository.cs");
 
         Assert.Contains("from dbo.ConsumerRequestSessions session", source, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("inner join dbo.ConsumerRequests request", source, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("request.ConsumerSessionId = session.SessionId", source, StringComparison.Ordinal);
-        Assert.Contains("request.MessageId = @RequestMessageId", source, StringComparison.Ordinal);
-        Assert.Contains("request.ChannelId = @ChannelId", source, StringComparison.Ordinal);
         Assert.Contains("session.SessionId = @ConsumerRequestSessionId", source, StringComparison.Ordinal);
-        Assert.Contains("session.SessionState = @OpenSessionState", source, StringComparison.Ordinal);
-        Assert.Contains("ConsumerRequestSessionStates.Open", source, StringComparison.Ordinal);
         Assert.Contains("session.ListenerUrl is not null", source, StringComparison.Ordinal);
         Assert.Contains("ltrim(rtrim(session.ListenerUrl)) <> N''", source, StringComparison.Ordinal);
-        Assert.Contains("request.ExpiredUtc is null", source, StringComparison.Ordinal);
-        Assert.Contains("request.EffectiveExpiryUtc is null or request.EffectiveExpiryUtc > @SqlUtcNow", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("request.EffectiveExpiryUtc < @ConfiguredDeadlineUtc", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ConsumerRequestTopics", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -64,11 +58,9 @@ public sealed class SqlRequestResponseRepositoryTests
 
         Assert.Contains("declare @SqlUtcNow datetime2(7) = sysutcdatetime()", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("dateadd(minute, @MaximumDeliveryAgeMinutes, @SqlUtcNow)", source, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("when request.EffectiveExpiryUtc is not null and request.EffectiveExpiryUtc < @ConfiguredDeadlineUtc then request.EffectiveExpiryUtc", source, StringComparison.Ordinal);
-        Assert.Contains("else @ConfiguredDeadlineUtc", source, StringComparison.Ordinal);
         Assert.Contains("_notificationOptions.MaximumDeliveryAgeMinutes", source, StringComparison.Ordinal);
         Assert.Contains("existing.MessageId = @MessageId", source, StringComparison.Ordinal);
-        Assert.Contains("existing.ConsumerRequestSessionId = session.SessionId", source, StringComparison.Ordinal);
+        Assert.Contains("existing.ConsumerRequestSessionId = @ConsumerRequestSessionId", source, StringComparison.Ordinal);
         Assert.Contains("existing.NotificationServiceType = @ResponseServiceType", source, StringComparison.Ordinal);
         Assert.DoesNotContain("existing.RequestMessageId = @RequestMessageId", source, StringComparison.Ordinal);
     }
@@ -91,10 +83,11 @@ public sealed class SqlRequestResponseRepositoryTests
         Assert.Contains("output inserted.MessageId", source, StringComparison.Ordinal);
         Assert.Contains("into @RemovedResponses (MessageId)", source, StringComparison.Ordinal);
         Assert.Contains("delete dbo.OutstandingRequestResponses", source, StringComparison.Ordinal);
-        Assert.Contains("select top (1) MessageId", source, StringComparison.Ordinal);
-        Assert.Contains("SqlResponseNotificationSuppression.SuppressForResponseAsync", source, StringComparison.Ordinal);
+        Assert.Contains("inner join @RemovedResponses removed", source, StringComparison.Ordinal);
+        Assert.Contains("notification.NotificationServiceType = @ResponseServiceType", source, StringComparison.Ordinal);
+        Assert.Contains("notification.ConsumerRequestSessionId = @ConsumerRequestSessionId", source, StringComparison.Ordinal);
+        Assert.Contains("notification.State in (@PendingState, @RetryScheduledState)", source, StringComparison.Ordinal);
         Assert.Contains("PublicationNotificationSuppressionReasons.ResponseRemoved", source, StringComparison.Ordinal);
-        Assert.Contains("responseMessageId", source, StringComparison.Ordinal);
         Assert.DoesNotContain("SqlResponseNotificationSuppression.SuppressForRequestAsync(\r\n                        connection,\r\n                        transaction,\r\n                        requestMessageId", source, StringComparison.Ordinal);
     }
 

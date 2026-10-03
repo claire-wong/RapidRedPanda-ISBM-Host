@@ -71,10 +71,12 @@ public sealed class ProviderConsumerPublicationRoundTripTests
         const string azureTopicName = "isbm-topic";
         FakeChannelRepository channelRepository = new(channelId, azureTopicName);
         FakeProviderPublicationSessionRepository providerSessionRepository = new();
+        CapturingProviderPublicationRepository publicationRepository = new();
         CapturingPublicationTransport publicationTransport = new();
         ProviderPublicationSessionService providerService = new(
             channelRepository,
             providerSessionRepository,
+            publicationRepository,
             publicationTransport,
             NullLogger<ProviderPublicationSessionService>.Instance);
 
@@ -98,6 +100,7 @@ public sealed class ProviderConsumerPublicationRoundTripTests
         ConsumerSubscriptionSessionService consumerService = new(
             channelRepository,
             new FakeSubscriptionSessionRepository(consumerSessionId, channelId, azureTopicName),
+            publicationRepository,
             new CapturingSubscriptionTransport(sentMessage),
             new NoOpChannelTopicTransport(),
             NullLogger<ConsumerSubscriptionSessionService>.Instance);
@@ -284,6 +287,80 @@ public sealed class ProviderConsumerPublicationRoundTripTests
         {
             SentMessages.Add(message);
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class CapturingProviderPublicationRepository : IProviderPublicationRepository
+    {
+        private readonly Dictionary<Guid, ProviderPublicationData> _publications = [];
+        private readonly Dictionary<Guid, ProviderPublicationData> _outstanding = [];
+
+        public Task<ProviderPublicationRepositoryResult> InsertPublishedPublicationAsync(
+            ProviderPublicationCreateData publication,
+            CancellationToken cancellationToken)
+        {
+            _publications[publication.MessageId] = new ProviderPublicationData(
+                publication.MessageId,
+                publication.ProviderSessionId,
+                publication.ChannelId,
+                publication.Topics,
+                publication.MessageContent);
+            return Task.FromResult(ProviderPublicationRepositoryResult.Success());
+        }
+
+        public Task<ProviderPublicationRepositoryResult> ExpirePublicationAsync(Guid providerSessionId, Guid channelId, Guid messageId, DateTime expiredUtc, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<PublicationExpirationStateResult> IsPublicationExpiredAsync(Guid messageId, Guid consumerSessionId, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(PublicationExpirationStateResult.Success(false));
+        }
+
+        public Task<ProviderPublicationRepositoryResult> MarkRecipientOutstandingAsync(Guid messageId, Guid consumerSessionId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<ReadProviderPublicationResult> GetOutstandingPublicationAsync(Guid consumerSessionId, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(
+                _outstanding.TryGetValue(consumerSessionId, out ProviderPublicationData? publication)
+                    ? ReadProviderPublicationResult.Success(publication)
+                    : ReadProviderPublicationResult.NoPublication());
+        }
+
+        public Task<ReadProviderPublicationResult> TryMarkPublicationOutstandingAsync(Guid messageId, Guid consumerSessionId, CancellationToken cancellationToken)
+        {
+            if (_outstanding.TryGetValue(consumerSessionId, out ProviderPublicationData? existing))
+            {
+                return Task.FromResult(ReadProviderPublicationResult.Success(existing));
+            }
+
+            if (!_publications.TryGetValue(messageId, out ProviderPublicationData? publication))
+            {
+                return Task.FromResult(ReadProviderPublicationResult.NoPublication());
+            }
+
+            _outstanding[consumerSessionId] = publication;
+            return Task.FromResult(ReadProviderPublicationResult.Success(publication));
+        }
+
+        public Task<ProviderPublicationRepositoryResult> MarkRecipientSkippedExpiredAsync(Guid messageId, Guid consumerSessionId, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(ProviderPublicationRepositoryResult.Success());
+        }
+
+        public Task<ProviderPublicationRepositoryResult> MarkRecipientRemovedAsync(Guid messageId, Guid consumerSessionId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<RemoveProviderPublicationRecipientResult> RemoveOutstandingPublicationAsync(Guid consumerSessionId, CancellationToken cancellationToken)
+        {
+            if (!_outstanding.Remove(consumerSessionId, out ProviderPublicationData? publication))
+            {
+                return Task.FromResult(RemoveProviderPublicationRecipientResult.Success(null));
+            }
+
+            return Task.FromResult(RemoveProviderPublicationRecipientResult.Success(publication.MessageId));
+        }
+
+        public Task<ProviderPublicationRepositoryResult> MarkRecipientsSubscriptionDeletedAsync(Guid consumerSessionId, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(ProviderPublicationRepositoryResult.Success());
         }
     }
 

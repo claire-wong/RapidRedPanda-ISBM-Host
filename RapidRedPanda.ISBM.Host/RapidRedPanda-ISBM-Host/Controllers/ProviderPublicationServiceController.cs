@@ -21,15 +21,18 @@ public sealed class ProviderPublicationServiceController : Controller
     private readonly IProviderPublicationSessionService _publicationSessionService;
     private readonly IUsernameTokenParser _usernameTokenParser;
     private readonly ILogger<ProviderPublicationServiceController> _logger;
+    private readonly IIsbmOperationAuthorizationService? _authorization;
 
     public ProviderPublicationServiceController(
         IProviderPublicationSessionService publicationSessionService,
         IUsernameTokenParser usernameTokenParser,
-        ILogger<ProviderPublicationServiceController> logger)
+        ILogger<ProviderPublicationServiceController> logger,
+        IIsbmOperationAuthorizationService? authorization = null)
     {
         _publicationSessionService = publicationSessionService;
         _usernameTokenParser = usernameTokenParser;
         _logger = logger;
+        _authorization = authorization;
     }
 
     [HttpPost("channels/{channelId}/publication-sessions")]
@@ -58,7 +61,8 @@ public sealed class ProviderPublicationServiceController : Controller
         {
             OpenPublicationSessionFailureKind.ParameterFault => BadRequest(new FaultResponse("ParameterFault")),
             OpenPublicationSessionFailureKind.ChannelFault => NotFound(new FaultResponse("ChannelFault")),
-            OpenPublicationSessionFailureKind.SecurityTokenFault => Conflict(new FaultResponse("SecurityTokenFault")),
+            OpenPublicationSessionFailureKind.InvalidChannelType => UnprocessableEntity(new FaultResponse("OperationFault")),
+            OpenPublicationSessionFailureKind.SecurityTokenFault => NotFound(new FaultResponse("ChannelFault")),
             _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
         };
     }
@@ -66,6 +70,9 @@ public sealed class ProviderPublicationServiceController : Controller
     [HttpPost("sessions/{sessionId}/publications")]
     public async Task<IActionResult> PostPublication(string sessionId, CancellationToken cancellationToken)
     {
+        IActionResult? authorizationFailure = await AuthorizeSessionAsync(sessionId, cancellationToken);
+        if (authorizationFailure is not null) return authorizationFailure;
+
         if (!RestEnvelopeMediaTypeValidator.IsJsonEnvelopeMediaType(Request.ContentType))
         {
             return new UnsupportedMediaTypeResult();
@@ -131,6 +138,9 @@ public sealed class ProviderPublicationServiceController : Controller
         string messageId,
         CancellationToken cancellationToken)
     {
+        IActionResult? authorizationFailure = await AuthorizeSessionAsync(sessionId, cancellationToken);
+        if (authorizationFailure is not null) return authorizationFailure;
+
         ExpirePublicationResult result;
         try
         {
@@ -162,41 +172,20 @@ public sealed class ProviderPublicationServiceController : Controller
 
     private ChannelCredentials? TryReadBasicCredentials()
     {
-        string? authorizationHeader = Request.Headers.Authorization.FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(authorizationHeader))
+        return BasicAuthenticationCredentials.Read(Request, _usernameTokenParser);
+    }
+
+    private async Task<IActionResult?> AuthorizeSessionAsync(string sessionId, CancellationToken cancellationToken)
+    {
+        if (_authorization is null) return null;
+        IsbmAuthorizationOutcome outcome = await _authorization.AuthorizeSessionAsync(
+            sessionId, IsbmSessionKind.ProviderPublication, TryReadBasicCredentials(), cancellationToken);
+        return outcome switch
         {
-            return null;
-        }
-
-        if (!AuthenticationHeaderValue.TryParse(authorizationHeader, out AuthenticationHeaderValue? authenticationHeader) ||
-            !string.Equals(authenticationHeader.Scheme, "Basic", StringComparison.OrdinalIgnoreCase) ||
-            string.IsNullOrWhiteSpace(authenticationHeader.Parameter))
-        {
-            return null;
-        }
-
-        try
-        {
-            string decoded = Encoding.UTF8.GetString(Convert.FromBase64String(authenticationHeader.Parameter));
-            int separatorIndex = decoded.IndexOf(':', StringComparison.Ordinal);
-            if (separatorIndex < 0)
-            {
-                return null;
-            }
-
-            string username = decoded[..separatorIndex];
-            string password = decoded[(separatorIndex + 1)..];
-
-            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrEmpty(password))
-            {
-                return null;
-            }
-
-            return new ChannelCredentials(_usernameTokenParser.NormalizeUsername(username), password);
-        }
-        catch (FormatException)
-        {
-            return null;
-        }
+            IsbmAuthorizationOutcome.Authorized => null,
+            IsbmAuthorizationOutcome.NotFoundOrUnauthorized => NotFound(new FaultResponse("SessionFault")),
+            IsbmAuthorizationOutcome.WrongSessionKind => UnprocessableEntity(new FaultResponse("OperationFault")),
+            _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
+        };
     }
 }

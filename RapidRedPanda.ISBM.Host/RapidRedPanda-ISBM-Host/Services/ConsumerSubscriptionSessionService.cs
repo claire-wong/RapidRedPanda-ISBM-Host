@@ -32,6 +32,7 @@ public enum OpenSubscriptionSessionFailureKind
 {
     ParameterFault,
     ChannelFault,
+    InvalidChannelType,
     SecurityTokenFault,
     OperationFault
 }
@@ -214,7 +215,7 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
             {
                 GetChannelForSubscriptionFailureKind.NotFound => OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.ChannelFault),
                 GetChannelForSubscriptionFailureKind.SecurityTokenInvalid => OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.SecurityTokenFault),
-                GetChannelForSubscriptionFailureKind.InvalidChannelType => OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.OperationFault),
+                GetChannelForSubscriptionFailureKind.InvalidChannelType => OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.InvalidChannelType),
                 _ => OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.OperationFault)
             };
         }
@@ -418,16 +419,21 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
 
         ConsumerSubscriptionSessionData session = sessionResult.Session;
 
+        ReadProviderPublicationResult durableOutstanding = await _publicationRepository.GetOutstandingPublicationAsync(
+            session.SessionId,
+            cancellationToken);
+        if (!durableOutstanding.Succeeded)
+        {
+            return ReadPublicationResult.Failure(ReadPublicationFailureKind.OperationFault);
+        }
+
+        if (durableOutstanding.HasPublication && durableOutstanding.Publication is ProviderPublicationData outstandingPublication)
+        {
+            return ToReadPublicationResult(session, outstandingPublication);
+        }
+
         try
         {
-            TransportPublication? outstandingPublication = await _subscriptionTransport.GetOutstandingPublicationAsync(
-                session.SessionId,
-                cancellationToken);
-            if (outstandingPublication is not null)
-            {
-                return ToReadPublicationResult(session, outstandingPublication);
-            }
-
             for (int skippedCount = 0; skippedCount < 100; skippedCount++)
             {
                 TransportPublication? publication = await _subscriptionTransport.ReadPublicationAsync(
@@ -441,6 +447,21 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
                     return ReadPublicationResult.NoPublication();
                 }
 
+                ReadProviderPublicationResult claimResult =
+                    await _publicationRepository.TryMarkPublicationOutstandingAsync(
+                        publication.PublicationId,
+                        session.SessionId,
+                        cancellationToken);
+                if (!claimResult.Succeeded)
+                {
+                    return ReadPublicationResult.Failure(ReadPublicationFailureKind.OperationFault);
+                }
+
+                if (claimResult.HasPublication && claimResult.Publication is ProviderPublicationData claimedPublication)
+                {
+                    return ToReadPublicationResult(session, claimedPublication);
+                }
+
                 PublicationExpirationStateResult expirationState =
                     await _publicationRepository.IsPublicationExpiredAsync(
                         publication.PublicationId,
@@ -451,35 +472,23 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
                     return ReadPublicationResult.Failure(ReadPublicationFailureKind.OperationFault);
                 }
 
-                if (!expirationState.IsExpired)
-                {
-                    ProviderPublicationRepositoryResult outstandingResult =
-                        await _publicationRepository.MarkRecipientOutstandingAsync(
-                            publication.PublicationId,
-                            session.SessionId,
-                            cancellationToken);
-                    if (!outstandingResult.Succeeded)
-                    {
-                        return ReadPublicationResult.Failure(ReadPublicationFailureKind.OperationFault);
-                    }
-
-                    return ToReadPublicationResult(session, publication);
-                }
-
                 await _subscriptionTransport.RemovePublicationAsync(
                     session.SessionId,
                     session.AzureTopicName,
                     session.AzureSubscriptionName,
                     cancellationToken);
 
-                ProviderPublicationRepositoryResult skippedResult =
-                    await _publicationRepository.MarkRecipientSkippedExpiredAsync(
-                        publication.PublicationId,
-                        session.SessionId,
-                        cancellationToken);
-                if (!skippedResult.Succeeded)
+                if (expirationState.IsExpired)
                 {
-                    return ReadPublicationResult.Failure(ReadPublicationFailureKind.OperationFault);
+                    ProviderPublicationRepositoryResult skippedResult =
+                        await _publicationRepository.MarkRecipientSkippedExpiredAsync(
+                            publication.PublicationId,
+                            session.SessionId,
+                            cancellationToken);
+                    if (!skippedResult.Succeeded)
+                    {
+                        return ReadPublicationResult.Failure(ReadPublicationFailureKind.OperationFault);
+                    }
                 }
             }
 
@@ -536,27 +545,28 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
 
         try
         {
+            RemoveProviderPublicationRecipientResult removeResult =
+                await _publicationRepository.RemoveOutstandingPublicationAsync(
+                    session.SessionId,
+                    cancellationToken);
+            if (!removeResult.Succeeded)
+            {
+                return RemovePublicationResult.Failure(RemovePublicationFailureKind.OperationFault);
+            }
+
             TransportPublication? outstandingPublication = await _subscriptionTransport.GetOutstandingPublicationAsync(
                 session.SessionId,
                 cancellationToken);
 
-            await _subscriptionTransport.RemovePublicationAsync(
-                session.SessionId,
-                session.AzureTopicName,
-                session.AzureSubscriptionName,
-                cancellationToken);
-
-            if (outstandingPublication is not null)
+            if (removeResult.MessageId is Guid removedMessageId &&
+                outstandingPublication is not null &&
+                outstandingPublication.PublicationId == removedMessageId)
             {
-                ProviderPublicationRepositoryResult removedResult =
-                    await _publicationRepository.MarkRecipientRemovedAsync(
-                        outstandingPublication.PublicationId,
-                        session.SessionId,
-                        cancellationToken);
-                if (!removedResult.Succeeded)
-                {
-                    return RemovePublicationResult.Failure(RemovePublicationFailureKind.OperationFault);
-                }
+                await _subscriptionTransport.RemovePublicationAsync(
+                    session.SessionId,
+                    session.AzureTopicName,
+                    session.AzureSubscriptionName,
+                    cancellationToken);
             }
 
             return RemovePublicationResult.Success();
@@ -602,6 +612,25 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
 
         return ReadPublicationResult.Success(new ReadPublicationData(
             publication.PublicationId,
+            publication.Topics,
+            messageContent!));
+    }
+
+    private ReadPublicationResult ToReadPublicationResult(
+        ConsumerSubscriptionSessionData session,
+        ProviderPublicationData publication)
+    {
+        if (!SqlMessageContentAdapter.TryFromSql(publication.MessageContent, out InternalMessageContent? messageContent))
+        {
+            _logger.LogError(
+                "Stored publication message content was not a valid MessageContent value. SessionId: {SessionId}. PublicationId: {PublicationId}.",
+                session.SessionId,
+                publication.MessageId);
+            return ReadPublicationResult.Failure(ReadPublicationFailureKind.OperationFault);
+        }
+
+        return ReadPublicationResult.Success(new ReadPublicationData(
+            publication.MessageId,
             publication.Topics,
             messageContent!));
     }

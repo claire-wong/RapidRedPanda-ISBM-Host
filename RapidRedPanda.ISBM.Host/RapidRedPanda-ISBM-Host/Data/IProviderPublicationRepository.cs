@@ -36,4 +36,26 @@ public interface IProviderPublicationRepository
     Task<ProviderPublicationRepositoryResult> MarkRecipientsSubscriptionDeletedAsync(
         Guid consumerSessionId,
         CancellationToken cancellationToken);
+
+    Task<ReadProviderPublicationResult> GetOutstandingPublicationAsync(
+        Guid consumerSessionId,
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
+
+    Task<ReadProviderPublicationResult> TryMarkPublicationOutstandingAsync(
+        Guid messageId,
+        Guid consumerSessionId,
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
+
+    Task<RemoveProviderPublicationRecipientResult> RemoveOutstandingPublicationAsync(
+        Guid consumerSessionId,
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
 }

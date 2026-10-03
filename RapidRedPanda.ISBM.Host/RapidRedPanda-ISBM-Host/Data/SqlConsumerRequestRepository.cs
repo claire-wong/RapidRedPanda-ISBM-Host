@@ -2,6 +2,8 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
 using RapidRedPanda.ISBM.Host.Services;
 using System.Data;
+using System.Globalization;
+using System.Text;
 
 namespace RapidRedPanda.ISBM.Host.Data;
 
@@ -43,7 +45,12 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
                         ConsumerSessionId,
                         ChannelId,
                         CreatedUtc,
-                        EffectiveExpiryUtc
+                        EffectiveExpiryUtc,
+                        MessageContent,
+                        MediaType,
+                        Payload,
+                        PayloadKind,
+                        ContentEncoding
                     )
                     values
                     (
@@ -51,7 +58,12 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
                         @ConsumerSessionId,
                         @ChannelId,
                         @CreatedUtc,
-                        @EffectiveExpiryUtc
+                        @EffectiveExpiryUtc,
+                        @MessageContent,
+                        @MediaType,
+                        @Payload,
+                        @PayloadKind,
+                        @ContentEncoding
                     );
                     """;
 
@@ -63,6 +75,7 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
                     command.Parameters.Add("@CreatedUtc", SqlDbType.DateTime2).Value = request.CreatedUtc;
                     command.Parameters.Add("@EffectiveExpiryUtc", SqlDbType.DateTime2).Value =
                         (object?)request.EffectiveExpiryUtc ?? DBNull.Value;
+                    AddMessageContentParameters(command, request.MessageContent);
                     await command.ExecuteNonQueryAsync(cancellationToken);
                 }
 
@@ -112,6 +125,416 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
             return ConsumerRequestRepositoryResult.Failure(
                 ConsumerRequestRepositoryFailureKind.DatabaseFailure,
                 "Database failure while inserting consumer request metadata.");
+        }
+    }
+
+    public async Task<ConsumerRequestRepositoryResult> ExpireRequestAsync(
+        Guid consumerSessionId,
+        Guid channelId,
+        Guid messageId,
+        DateTime expiredUtc,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using SqlConnection connection = new(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+            await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+            try
+            {
+                const string sql = """
+                    update dbo.ConsumerRequests
+                       set ExpiredUtc = coalesce(ExpiredUtc, @ExpiredUtc)
+                     where MessageId = @MessageId
+                       and ConsumerSessionId = @ConsumerSessionId
+                       and ChannelId = @ChannelId;
+                    """;
+
+                await using (SqlCommand command = new(sql, connection, transaction))
+                {
+                    command.Parameters.Add("@ExpiredUtc", SqlDbType.DateTime2).Value = expiredUtc;
+                    command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = messageId;
+                    command.Parameters.Add("@ConsumerSessionId", SqlDbType.UniqueIdentifier).Value = consumerSessionId;
+                    command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = channelId;
+                    await command.ExecuteNonQueryAsync(cancellationToken);
+                }
+
+                int suppressedCount = await SqlRequestNotificationSuppression.SuppressForMessageAsync(
+                    connection,
+                    transaction,
+                    messageId,
+                    expiredUtc,
+                    PublicationNotificationSuppressionReasons.RequestExpired,
+                    cancellationToken);
+
+                await transaction.CommitAsync(cancellationToken);
+                _logger.LogInformation(
+                    "Suppressed {SuppressedCount} request notifications while expiring request {MessageId}.",
+                    suppressedCount,
+                    messageId);
+                return ConsumerRequestRepositoryResult.Success();
+            }
+            catch
+            {
+                await RollbackQuietlyAsync(transaction, cancellationToken);
+                throw;
+            }
+        }
+        catch (SqlException exception)
+        {
+            _logger.LogError(exception, "Database failure while expiring consumer request {MessageId}.", messageId);
+            return ConsumerRequestRepositoryResult.Failure(
+                ConsumerRequestRepositoryFailureKind.DatabaseFailure,
+                "Database failure while expiring consumer request.");
+        }
+    }
+
+    public async Task<RequestExpirationStateResult> IsRequestExpiredAsync(
+        Guid messageId,
+        Guid providerSessionId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using SqlConnection connection = new(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            const string sql = """
+                select case when exists
+                (
+                    select 1
+                    from dbo.ConsumerRequests request
+                    inner join dbo.ProviderRequestSessions session
+                            on session.ChannelId = request.ChannelId
+                    where request.MessageId = @MessageId
+                      and session.SessionId = @ProviderSessionId
+                      and
+                      (
+                          request.ExpiredUtc is not null
+                          or request.EffectiveExpiryUtc <= sysutcdatetime()
+                      )
+                )
+                then cast(1 as bit) else cast(0 as bit) end;
+                """;
+
+            await using SqlCommand command = new(sql, connection);
+            command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = messageId;
+            command.Parameters.Add("@ProviderSessionId", SqlDbType.UniqueIdentifier).Value = providerSessionId;
+            bool isExpired = (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
+            return RequestExpirationStateResult.Success(isExpired);
+        }
+        catch (SqlException exception)
+        {
+            _logger.LogError(exception, "Database failure while checking request expiration. MessageId: {MessageId}. ProviderSessionId: {ProviderSessionId}.", messageId, providerSessionId);
+            return RequestExpirationStateResult.Failure(
+                ConsumerRequestRepositoryFailureKind.DatabaseFailure,
+                "Database failure while checking request expiration.");
+        }
+    }
+
+    public async Task<ReadConsumerRequestResult> GetOutstandingRequestAsync(
+        Guid providerSessionId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using SqlConnection connection = new(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            const string sql = """
+                select top (1)
+                       request.MessageId,
+                       request.ConsumerSessionId,
+                       request.ChannelId,
+                       recipient.TopicValue,
+                       request.MessageContent,
+                       request.MediaType,
+                       request.Payload,
+                       request.PayloadKind,
+                       request.ContentEncoding
+                from dbo.ConsumerRequestRecipients recipient
+                inner join dbo.ConsumerRequests request
+                        on request.MessageId = recipient.RequestMessageId
+                where recipient.ProviderRequestSessionId = @ProviderRequestSessionId
+                  and recipient.State = @OutstandingState
+                order by recipient.ReadUtc, request.CreatedUtc;
+                """;
+
+            await using SqlCommand command = new(sql, connection);
+            command.Parameters.Add("@ProviderRequestSessionId", SqlDbType.UniqueIdentifier).Value = providerSessionId;
+            command.Parameters.Add("@OutstandingState", SqlDbType.NVarChar, 32).Value = ConsumerRequestRecipientStates.Outstanding;
+            await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+            ConsumerRequestData? request = await ReadRequestDataAsync(reader, cancellationToken);
+            return request is null
+                ? ReadConsumerRequestResult.NoRequest()
+                : ReadConsumerRequestResult.Success(request);
+        }
+        catch (SqlException exception)
+        {
+            _logger.LogError(exception, "Database failure while reading outstanding request for provider session {ProviderSessionId}.", providerSessionId);
+            return ReadConsumerRequestResult.Failure(
+                ConsumerRequestRepositoryFailureKind.DatabaseFailure,
+                "Database failure while reading outstanding request.");
+        }
+    }
+
+    public async Task<ReadConsumerRequestResult> TryMarkRequestOutstandingAsync(
+        Guid messageId,
+        Guid providerSessionId,
+        Guid channelId,
+        IReadOnlyList<string> providerTopics,
+        CancellationToken cancellationToken)
+    {
+        if (providerTopics.Count == 0)
+        {
+            return ReadConsumerRequestResult.NoRequest();
+        }
+
+        try
+        {
+            await using SqlConnection connection = new(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+            await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+
+            try
+            {
+                ConsumerRequestData? existingOutstanding = await GetOutstandingRequestAsync(
+                    connection,
+                    transaction,
+                    providerSessionId,
+                    cancellationToken);
+                if (existingOutstanding is not null)
+                {
+                    await transaction.CommitAsync(cancellationToken);
+                    return ReadConsumerRequestResult.Success(existingOutstanding);
+                }
+
+                string topicValuesSql = BuildTopicValuesSql(providerTopics);
+                string claimSql = $$"""
+                    declare @SqlUtcNow datetime2(7) = sysutcdatetime();
+
+                    declare @Candidate table
+                    (
+                        MessageId uniqueidentifier not null,
+                        ConsumerSessionId uniqueidentifier not null,
+                        ChannelId uniqueidentifier not null,
+                        TopicValue nvarchar(512) not null,
+                        MessageContent nvarchar(max) null,
+                        MediaType nvarchar(256) null,
+                        Payload varbinary(max) null,
+                        PayloadKind nvarchar(16) null,
+                        ContentEncoding nvarchar(64) null
+                    );
+
+                    insert @Candidate
+                    (
+                        MessageId,
+                        ConsumerSessionId,
+                        ChannelId,
+                        TopicValue,
+                        MessageContent,
+                        MediaType,
+                        Payload,
+                        PayloadKind,
+                        ContentEncoding
+                    )
+                    select top (1)
+                           request.MessageId,
+                           request.ConsumerSessionId,
+                           request.ChannelId,
+                           topic.TopicValue,
+                           request.MessageContent,
+                           request.MediaType,
+                           request.Payload,
+                           request.PayloadKind,
+                           request.ContentEncoding
+                    from dbo.ConsumerRequests request with (updlock, holdlock)
+                    inner join dbo.ConsumerRequestTopics topic
+                            on topic.MessageId = request.MessageId
+                    inner join ({{topicValuesSql}}) providerTopic(TopicValue)
+                            on providerTopic.TopicValue = topic.TopicValue
+                    where request.MessageId = @MessageId
+                      and request.ChannelId = @ChannelId
+                      and request.ExpiredUtc is null
+                      and (request.EffectiveExpiryUtc is null or request.EffectiveExpiryUtc > @SqlUtcNow)
+                      and request.MessageContent is not null
+                      and not exists
+                      (
+                          select 1
+                          from dbo.ConsumerRequestRecipients removed
+                          where removed.RequestMessageId = request.MessageId
+                            and removed.ProviderRequestSessionId = @ProviderRequestSessionId
+                            and removed.State = @RemovedState
+                      )
+                    order by topic.TopicOrdinal;
+
+                    insert dbo.ConsumerRequestRecipients
+                    (
+                        RequestMessageId,
+                        ProviderRequestSessionId,
+                        State,
+                        TopicValue,
+                        ReadUtc
+                    )
+                    select
+                        candidate.MessageId,
+                        @ProviderRequestSessionId,
+                        @OutstandingState,
+                        candidate.TopicValue,
+                        @SqlUtcNow
+                    from @Candidate candidate
+                    where not exists
+                    (
+                        select 1
+                        from dbo.ConsumerRequestRecipients existing
+                        where existing.RequestMessageId = candidate.MessageId
+                          and existing.ProviderRequestSessionId = @ProviderRequestSessionId
+                    );
+
+                    select top (1)
+                           candidate.MessageId,
+                           candidate.ConsumerSessionId,
+                           candidate.ChannelId,
+                           candidate.TopicValue,
+                           candidate.MessageContent,
+                           candidate.MediaType,
+                           candidate.Payload,
+                           candidate.PayloadKind,
+                           candidate.ContentEncoding
+                    from @Candidate candidate;
+                    """;
+
+                await using SqlCommand command = new(claimSql, connection, transaction);
+                command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = messageId;
+                command.Parameters.Add("@ProviderRequestSessionId", SqlDbType.UniqueIdentifier).Value = providerSessionId;
+                command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = channelId;
+                command.Parameters.Add("@OutstandingState", SqlDbType.NVarChar, 32).Value = ConsumerRequestRecipientStates.Outstanding;
+                command.Parameters.Add("@RemovedState", SqlDbType.NVarChar, 32).Value = ConsumerRequestRecipientStates.Removed;
+                AddTopicParameters(command, providerTopics);
+
+                await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+                ConsumerRequestData? claimed = await ReadRequestDataAsync(reader, cancellationToken);
+
+                await transaction.CommitAsync(cancellationToken);
+                return claimed is null
+                    ? ReadConsumerRequestResult.NoRequest()
+                    : ReadConsumerRequestResult.Success(claimed);
+            }
+            catch
+            {
+                await RollbackQuietlyAsync(transaction, cancellationToken);
+                throw;
+            }
+        }
+        catch (SqlException exception)
+        {
+            _logger.LogError(exception, "Database failure while marking request {MessageId} outstanding for provider session {ProviderSessionId}.", messageId, providerSessionId);
+            return ReadConsumerRequestResult.Failure(
+                ConsumerRequestRepositoryFailureKind.DatabaseFailure,
+                "Database failure while marking request outstanding.");
+        }
+    }
+
+    public async Task<RemoveConsumerRequestRecipientResult> RemoveOutstandingRequestAsync(
+        Guid providerSessionId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using SqlConnection connection = new(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+            await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+            try
+            {
+                const string sql = """
+                    declare @Removed table (RequestMessageId uniqueidentifier not null);
+
+                    update dbo.ConsumerRequestRecipients
+                       set State = @RemovedState,
+                           ResolvedUtc = coalesce(ResolvedUtc, sysutcdatetime())
+                    output inserted.RequestMessageId into @Removed (RequestMessageId)
+                     where ProviderRequestSessionId = @ProviderRequestSessionId
+                       and State = @OutstandingState;
+
+                    select top (1) RequestMessageId from @Removed;
+                    """;
+
+                await using SqlCommand command = new(sql, connection, transaction);
+                command.Parameters.Add("@ProviderRequestSessionId", SqlDbType.UniqueIdentifier).Value = providerSessionId;
+                command.Parameters.Add("@OutstandingState", SqlDbType.NVarChar, 32).Value = ConsumerRequestRecipientStates.Outstanding;
+                command.Parameters.Add("@RemovedState", SqlDbType.NVarChar, 32).Value = ConsumerRequestRecipientStates.Removed;
+                object? result = await command.ExecuteScalarAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+
+                return RemoveConsumerRequestRecipientResult.Success(result is Guid messageId ? messageId : null);
+            }
+            catch
+            {
+                await RollbackQuietlyAsync(transaction, cancellationToken);
+                throw;
+            }
+        }
+        catch (SqlException exception)
+        {
+            _logger.LogError(exception, "Database failure while removing outstanding request for provider session {ProviderSessionId}.", providerSessionId);
+            return RemoveConsumerRequestRecipientResult.Failure(
+                ConsumerRequestRepositoryFailureKind.DatabaseFailure,
+                "Database failure while removing outstanding request.");
+        }
+    }
+
+    public async Task<RequestResponseEligibilityResult> FindRespondableRequestAsync(
+        Guid requestMessageId,
+        Guid providerSessionId,
+        Guid channelId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using SqlConnection connection = new(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            const string sql = """
+                select top (1) request.ConsumerSessionId
+                from dbo.ConsumerRequests request
+                where request.MessageId = @RequestMessageId
+                  and request.ChannelId = @ChannelId
+                  and
+                  (
+                      (
+                          request.ExpiredUtc is null
+                          and (request.EffectiveExpiryUtc is null or request.EffectiveExpiryUtc > sysutcdatetime())
+                      )
+                      or exists
+                      (
+                          select 1
+                          from dbo.ConsumerRequestRecipients recipient
+                          where recipient.RequestMessageId = request.MessageId
+                            and recipient.ProviderRequestSessionId = @ProviderSessionId
+                            and recipient.State = @OutstandingState
+                      )
+                  );
+                """;
+
+            await using SqlCommand command = new(sql, connection);
+            command.Parameters.Add("@RequestMessageId", SqlDbType.UniqueIdentifier).Value = requestMessageId;
+            command.Parameters.Add("@ProviderSessionId", SqlDbType.UniqueIdentifier).Value = providerSessionId;
+            command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = channelId;
+            command.Parameters.Add("@OutstandingState", SqlDbType.NVarChar, 32).Value = ConsumerRequestRecipientStates.Outstanding;
+
+            object? result = await command.ExecuteScalarAsync(cancellationToken);
+            return result is Guid consumerSessionId
+                ? RequestResponseEligibilityResult.Success(consumerSessionId)
+                : RequestResponseEligibilityResult.NoMatch();
+        }
+        catch (SqlException exception)
+        {
+            _logger.LogError(exception, "Database failure while matching respondable request. RequestMessageId: {RequestMessageId}. ProviderSessionId: {ProviderSessionId}.", requestMessageId, providerSessionId);
+            return RequestResponseEligibilityResult.Failure(
+                ConsumerRequestRepositoryFailureKind.DatabaseFailure,
+                "Database failure while matching respondable request.");
         }
     }
 
@@ -222,104 +645,91 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    public async Task<ConsumerRequestRepositoryResult> ExpireRequestAsync(
-        Guid consumerSessionId,
-        Guid channelId,
-        Guid messageId,
-        DateTime expiredUtc,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await using SqlConnection connection = new(_connectionString);
-            await connection.OpenAsync(cancellationToken);
-            await using SqlTransaction transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken);
-
-            try
-            {
-                const string sql = """
-                    update dbo.ConsumerRequests
-                       set ExpiredUtc = coalesce(ExpiredUtc, @ExpiredUtc)
-                     where MessageId = @MessageId
-                       and ConsumerSessionId = @ConsumerSessionId
-                       and ChannelId = @ChannelId;
-                    """;
-
-                await using (SqlCommand command = new(sql, connection, transaction))
-                {
-                    command.Parameters.Add("@ExpiredUtc", SqlDbType.DateTime2).Value = expiredUtc;
-                    command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = messageId;
-                    command.Parameters.Add("@ConsumerSessionId", SqlDbType.UniqueIdentifier).Value = consumerSessionId;
-                    command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = channelId;
-                    await command.ExecuteNonQueryAsync(cancellationToken);
-                }
-
-                int suppressedCount = await SqlRequestNotificationSuppression.SuppressForMessageAsync(
-                    connection,
-                    transaction,
-                    messageId,
-                    expiredUtc,
-                    PublicationNotificationSuppressionReasons.RequestExpired,
-                    cancellationToken);
-
-                await transaction.CommitAsync(cancellationToken);
-                _logger.LogInformation(
-                    "Suppressed {SuppressedCount} request notifications while expiring request {MessageId}.",
-                    suppressedCount,
-                    messageId);
-                return ConsumerRequestRepositoryResult.Success();
-            }
-            catch
-            {
-                await RollbackQuietlyAsync(transaction, cancellationToken);
-                throw;
-            }
-        }
-        catch (SqlException exception)
-        {
-            _logger.LogError(exception, "Database failure while expiring consumer request {MessageId}.", messageId);
-            return ConsumerRequestRepositoryResult.Failure(
-                ConsumerRequestRepositoryFailureKind.DatabaseFailure,
-                "Database failure while expiring consumer request.");
-        }
-    }
-
-    public async Task<RequestExpirationStateResult> IsRequestExpiredAsync(
-        Guid messageId,
+    private static async Task<ConsumerRequestData?> GetOutstandingRequestAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
         Guid providerSessionId,
         CancellationToken cancellationToken)
     {
-        try
+        const string sql = """
+            select top (1)
+                   request.MessageId,
+                   request.ConsumerSessionId,
+                   request.ChannelId,
+                   recipient.TopicValue,
+                   request.MessageContent,
+                   request.MediaType,
+                   request.Payload,
+                   request.PayloadKind,
+                   request.ContentEncoding
+            from dbo.ConsumerRequestRecipients recipient with (updlock, holdlock)
+            inner join dbo.ConsumerRequests request
+                    on request.MessageId = recipient.RequestMessageId
+            where recipient.ProviderRequestSessionId = @ProviderRequestSessionId
+              and recipient.State = @OutstandingState
+            order by recipient.ReadUtc, request.CreatedUtc;
+            """;
+
+        await using SqlCommand command = new(sql, connection, transaction);
+        command.Parameters.Add("@ProviderRequestSessionId", SqlDbType.UniqueIdentifier).Value = providerSessionId;
+        command.Parameters.Add("@OutstandingState", SqlDbType.NVarChar, 32).Value = ConsumerRequestRecipientStates.Outstanding;
+        await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await ReadRequestDataAsync(reader, cancellationToken);
+    }
+
+    private static async Task<ConsumerRequestData?> ReadRequestDataAsync(
+        SqlDataReader reader,
+        CancellationToken cancellationToken)
+    {
+        if (!await reader.ReadAsync(cancellationToken) || reader.IsDBNull(4))
         {
-            await using SqlConnection connection = new(_connectionString);
-            await connection.OpenAsync(cancellationToken);
-
-            const string sql = """
-                select case when exists
-                (
-                    select 1
-                    from dbo.ConsumerRequests request
-                    inner join dbo.ProviderRequestSessions session
-                            on session.ChannelId = request.ChannelId
-                    where request.MessageId = @MessageId
-                      and request.ExpiredUtc is not null
-                      and session.SessionId = @ProviderSessionId
-                )
-                then cast(1 as bit) else cast(0 as bit) end;
-                """;
-
-            await using SqlCommand command = new(sql, connection);
-            command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = messageId;
-            command.Parameters.Add("@ProviderSessionId", SqlDbType.UniqueIdentifier).Value = providerSessionId;
-            bool isExpired = (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
-            return RequestExpirationStateResult.Success(isExpired);
+            return null;
         }
-        catch (SqlException exception)
+
+        return new ConsumerRequestData(
+            reader.GetGuid(0),
+            reader.GetGuid(1),
+            reader.GetGuid(2),
+            reader.GetString(3),
+            new PersistedMessageContent(
+                reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.IsDBNull(6) ? null : (byte[])reader.GetValue(6),
+                reader.IsDBNull(7) ? null : reader.GetString(7),
+                reader.IsDBNull(8) ? null : reader.GetString(8)));
+    }
+
+    private static void AddMessageContentParameters(SqlCommand command, PersistedMessageContent content)
+    {
+        command.Parameters.Add("@MessageContent", SqlDbType.NVarChar, -1).Value = content.LegacyMessageContent;
+        command.Parameters.Add("@MediaType", SqlDbType.NVarChar, 256).Value = (object?)content.MediaType ?? DBNull.Value;
+        command.Parameters.Add("@Payload", SqlDbType.VarBinary, -1).Value = (object?)content.Payload ?? DBNull.Value;
+        command.Parameters.Add("@PayloadKind", SqlDbType.NVarChar, 16).Value = (object?)content.PayloadKind ?? DBNull.Value;
+        command.Parameters.Add("@ContentEncoding", SqlDbType.NVarChar, 64).Value = (object?)content.ContentEncoding ?? DBNull.Value;
+    }
+
+    private static string BuildTopicValuesSql(IReadOnlyList<string> topics)
+    {
+        StringBuilder builder = new();
+        for (int index = 0; index < topics.Count; index++)
         {
-            _logger.LogError(exception, "Database failure while checking request expiration. MessageId: {MessageId}. ProviderSessionId: {ProviderSessionId}.", messageId, providerSessionId);
-            return RequestExpirationStateResult.Failure(
-                ConsumerRequestRepositoryFailureKind.DatabaseFailure,
-                "Database failure while checking request expiration.");
+            if (index > 0)
+            {
+                builder.Append(" union all ");
+            }
+
+            builder.Append("select @Topic");
+            builder.Append(index.ToString(CultureInfo.InvariantCulture));
+        }
+
+        return builder.ToString();
+    }
+
+    private static void AddTopicParameters(SqlCommand command, IReadOnlyList<string> topics)
+    {
+        for (int index = 0; index < topics.Count; index++)
+        {
+            command.Parameters.Add($"@Topic{index}", SqlDbType.NVarChar, 512).Value = topics[index];
         }
     }
 

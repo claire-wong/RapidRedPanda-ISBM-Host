@@ -66,6 +66,7 @@ public sealed class PublicationNotificationClient : IPublicationNotificationClie
         CancellationToken cancellationToken)
     {
         Uri callbackUri;
+        object notificationRequest;
         try
         {
             Guid recipientSessionId = notification.ServiceType switch
@@ -74,6 +75,8 @@ public sealed class PublicationNotificationClient : IPublicationNotificationClie
                     ?? throw new InvalidOperationException("Publication notification is missing a consumer session ID."),
                 NotificationServiceTypes.Request => notification.ProviderRequestSessionId
                     ?? throw new InvalidOperationException("Request notification is missing a provider request session ID."),
+                NotificationServiceTypes.Response => notification.ConsumerRequestSessionId
+                    ?? throw new InvalidOperationException("Response notification is missing a consumer request session ID."),
                 _ => throw new InvalidOperationException("Notification service type is not supported.")
             };
 
@@ -81,6 +84,7 @@ public sealed class PublicationNotificationClient : IPublicationNotificationClie
                 notification.ListenerUrl,
                 recipientSessionId,
                 notification.MessageId);
+            notificationRequest = CreateNotificationRequest(notification);
         }
         catch (Exception exception) when (exception is UriFormatException or InvalidOperationException)
         {
@@ -90,7 +94,7 @@ public sealed class PublicationNotificationClient : IPublicationNotificationClie
         HttpClient httpClient = _httpClientFactory.CreateClient(HttpClientName);
         using HttpRequestMessage request = new(HttpMethod.Put, callbackUri)
         {
-            Content = JsonContent.Create(new PublicationNotificationRequest(notification.Topics))
+            Content = JsonContent.Create(notificationRequest)
         };
         request.Headers.UserAgent.ParseAdd("RapidRedPanda.ISBM.Host");
 
@@ -135,6 +139,21 @@ public sealed class PublicationNotificationClient : IPublicationNotificationClie
             code is >= 500 and <= 599;
     }
 
+    private static object CreateNotificationRequest(ClaimedPublicationNotification notification)
+    {
+        if (string.Equals(notification.ServiceType, NotificationServiceTypes.Response, StringComparison.Ordinal))
+        {
+            return new ResponseNotificationRequest(
+                notification.RequestMessageId
+                    ?? throw new InvalidOperationException("Response notification is missing a request message ID."));
+        }
+
+        return new PublicationNotificationRequest(notification.Topics);
+    }
+
     private sealed record PublicationNotificationRequest(
         [property: JsonPropertyName("topics")] IReadOnlyList<string> Topics);
+
+    private sealed record ResponseNotificationRequest(
+        [property: JsonPropertyName("requestMessageId")] Guid RequestMessageId);
 }

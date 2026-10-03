@@ -17,4 +17,37 @@ public interface IConsumerRequestRepository
         Guid messageId,
         Guid providerSessionId,
         CancellationToken cancellationToken);
+
+    Task<ReadConsumerRequestResult> GetOutstandingRequestAsync(
+        Guid providerSessionId,
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
+
+    Task<ReadConsumerRequestResult> TryMarkRequestOutstandingAsync(
+        Guid messageId,
+        Guid providerSessionId,
+        Guid channelId,
+        IReadOnlyList<string> providerTopics,
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
+
+    Task<RemoveConsumerRequestRecipientResult> RemoveOutstandingRequestAsync(
+        Guid providerSessionId,
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
+
+    Task<RequestResponseEligibilityResult> FindRespondableRequestAsync(
+        Guid requestMessageId,
+        Guid providerSessionId,
+        Guid channelId,
+        CancellationToken cancellationToken)
+    {
+        throw new NotSupportedException();
+    }
 }

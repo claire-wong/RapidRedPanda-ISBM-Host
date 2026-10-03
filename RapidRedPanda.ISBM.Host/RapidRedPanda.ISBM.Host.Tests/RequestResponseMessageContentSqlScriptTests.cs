@@ -61,6 +61,43 @@ public sealed class RequestResponseMessageContentSqlScriptTests
     }
 
     [Fact]
+    public void PublicationMessageContentMigration_AddsNullableContentColumnsAndConstraints()
+    {
+        if (!TryReadScript("Migrations", "020_AddPublicationMessageContent.sql", out string script))
+        {
+            return;
+        }
+
+        Assert.Contains("PublicationMessageContent-001", script, StringComparison.Ordinal);
+        Assert.Contains("alter table dbo.ProviderPublications", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("add MessageContent nvarchar(max) null", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("add MediaType nvarchar(256) null", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("add Payload varbinary(max) null", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("add PayloadKind nvarchar(16) null", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("add ContentEncoding nvarchar(64) null", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CK_ProviderPublications_MessageContentPayloadKind", script, StringComparison.Ordinal);
+        Assert.Contains("CK_ProviderPublications_MessageContentPayloadShape", script, StringComparison.Ordinal);
+        Assert.Contains("IX_ProviderPublicationRecipients_Consumer_Outstanding", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PublicationMessageContentMigration_IsGuardedAndIdempotent()
+    {
+        if (!TryReadScript("Migrations", "020_AddPublicationMessageContent.sql", out string script))
+        {
+            return;
+        }
+
+        Assert.Contains("if exists (select 1 from dbo.SchemaVersions where VersionNumber = N'PublicationMessageContent-001')", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("return", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("if col_length(N'dbo.ProviderPublications', N'MessageContent') is null", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("if col_length(N'dbo.ProviderPublications', N'Payload') is null", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("name = N'CK_ProviderPublications_MessageContentPayloadKind'", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("name = N'CK_ProviderPublications_MessageContentPayloadShape'", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("name = N'IX_ProviderPublicationRecipients_Consumer_Outstanding'", script, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void FreshInstall_CreatesMediaNeutralRequestResponsePayloadColumns()
     {
         string script = ReadScript("Install", "002_CreatePhaseOneSchema.sql");
@@ -90,6 +127,19 @@ public sealed class RequestResponseMessageContentSqlScriptTests
     private static string ReadScript(params string[] segments)
     {
         return File.ReadAllText(Path.Combine([ScriptsRoot, .. segments]));
+    }
+
+    private static bool TryReadScript(string scriptType, string scriptName, out string script)
+    {
+        string path = Path.Combine(ScriptsRoot, scriptType, scriptName);
+        if (!File.Exists(path))
+        {
+            script = string.Empty;
+            return false;
+        }
+
+        script = File.ReadAllText(path);
+        return true;
     }
 
     private static string RemoveDynamicSqlBodies(string script)
