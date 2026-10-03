@@ -119,6 +119,12 @@ public sealed class FilterExpressionNamespace
     public string? Name { get; init; }
 }
 
+public enum FilterExpressionValidationFailureKind
+{
+    ParameterFault,
+    NamespaceFault
+}
+
 public static class FilterExpressionJson
 {
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -128,9 +134,16 @@ public static class FilterExpressionJson
 
     public static bool TrySerializeValid(
         IReadOnlyList<FilterExpression?>? filterExpressions,
-        out string? filterExpressionsJson)
+        out string? filterExpressionsJson) =>
+        TrySerializeValid(filterExpressions, out filterExpressionsJson, out _);
+
+    public static bool TrySerializeValid(
+        IReadOnlyList<FilterExpression?>? filterExpressions,
+        out string? filterExpressionsJson,
+        out FilterExpressionValidationFailureKind? failureKind)
     {
         filterExpressionsJson = null;
+        failureKind = null;
         if (filterExpressions is null || filterExpressions.Count == 0)
         {
             return true;
@@ -140,11 +153,18 @@ public static class FilterExpressionJson
         {
             if (filterExpression is null ||
                 filterExpression.ExpressionString is not FilterExpressionString expressionString ||
-                string.IsNullOrWhiteSpace(expressionString.Expression) ||
+                expressionString.Expression is null ||
+                (expressionString.Expression.Length > 0 && string.IsNullOrWhiteSpace(expressionString.Expression)) ||
                 string.IsNullOrWhiteSpace(expressionString.Language) ||
-                HasInvalidApplicableMediaTypes(filterExpression.ApplicableMediaTypes) ||
-                HasInvalidNamespaces(filterExpression.Namespaces))
+                HasInvalidApplicableMediaTypes(filterExpression.ApplicableMediaTypes))
             {
+                failureKind = FilterExpressionValidationFailureKind.ParameterFault;
+                return false;
+            }
+
+            if (TryGetNamespaceFailure(filterExpression.Namespaces, out FilterExpressionValidationFailureKind? namespaceFailure))
+            {
+                failureKind = namespaceFailure;
                 return false;
             }
         }
@@ -159,13 +179,38 @@ public static class FilterExpressionJson
             applicableMediaTypes.Any(string.IsNullOrWhiteSpace);
     }
 
-    private static bool HasInvalidNamespaces(IReadOnlyList<FilterExpressionNamespace?>? namespaces)
+    private static bool TryGetNamespaceFailure(
+        IReadOnlyList<FilterExpressionNamespace?>? namespaces,
+        out FilterExpressionValidationFailureKind? failureKind)
     {
-        return namespaces is not null &&
-            namespaces.Any(item =>
-                item is null ||
+        failureKind = null;
+        if (namespaces is null)
+        {
+            return false;
+        }
+
+        Dictionary<string, string> namespaceByPrefix = new(StringComparer.Ordinal);
+        foreach (FilterExpressionNamespace? item in namespaces)
+        {
+            if (item is null ||
                 string.IsNullOrWhiteSpace(item.Prefix) ||
-                string.IsNullOrWhiteSpace(item.Name));
+                string.IsNullOrWhiteSpace(item.Name))
+            {
+                failureKind = FilterExpressionValidationFailureKind.ParameterFault;
+                return true;
+            }
+
+            if (namespaceByPrefix.TryGetValue(item.Prefix, out string? existingName) &&
+                !string.Equals(existingName, item.Name, StringComparison.Ordinal))
+            {
+                failureKind = FilterExpressionValidationFailureKind.NamespaceFault;
+                return true;
+            }
+
+            namespaceByPrefix[item.Prefix] = item.Name;
+        }
+
+        return false;
     }
 }
 

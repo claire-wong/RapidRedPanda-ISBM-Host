@@ -53,10 +53,20 @@ public sealed class ProviderRequestServiceController : Controller
 
         if (request?.Topics is null ||
             request.Topics.Count == 0 ||
-            request.Topics.Any(string.IsNullOrEmpty) ||
-            !FilterExpressionJson.TrySerializeValid(request.FilterExpressions, out string? filterExpressionsJson))
+            request.Topics.Any(string.IsNullOrEmpty))
         {
             return BadRequest(new FaultResponse("ParameterFault"));
+        }
+
+        if (!FilterExpressionJson.TrySerializeValid(
+            request.FilterExpressions,
+            out string? filterExpressionsJson,
+            out FilterExpressionValidationFailureKind? filterFailureKind))
+        {
+            return BadRequest(new FaultResponse(
+                filterFailureKind == FilterExpressionValidationFailureKind.NamespaceFault
+                    ? "NamespaceFault"
+                    : "ParameterFault"));
         }
 
         OpenProviderRequestSessionResult result;
