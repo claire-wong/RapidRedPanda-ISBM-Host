@@ -445,8 +445,18 @@ public sealed class ConsumerSubscriptionSessionServiceTests
         {
             Publication = publication
         };
+        FakeProviderPublicationRepository publicationRepository = new();
+        publicationRepository.SeedPublication(new ProviderPublicationData(
+            messageId,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            ["Topic-A", "Topic-B"],
+            SqlMessageContentAdapter.ToSql(InternalMessageContent.FromJson(BinaryData.FromString("""{"reading":42}""")))));
 
-        ReadPublicationResult result = await CreateService(sessionRepository: sessionRepository, transport: transport)
+        ReadPublicationResult result = await CreateService(
+                sessionRepository: sessionRepository,
+                publicationRepository: publicationRepository,
+                transport: transport)
             .ReadPublicationAsync(sessionId.ToString(), CancellationToken.None);
 
         Assert.True(result.Succeeded);
@@ -535,7 +545,24 @@ public sealed class ConsumerSubscriptionSessionServiceTests
         };
         FakeSubscriptionTransport transport = new();
 
-        RemovePublicationResult result = await CreateService(sessionRepository: sessionRepository, transport: transport)
+        Guid messageId = Guid.NewGuid();
+        FakeProviderPublicationRepository publicationRepository = new();
+        publicationRepository.SeedOutstanding(sessionId, new ProviderPublicationData(
+            messageId,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            ["Topic-A"],
+            SqlMessageContentAdapter.ToSql(InternalMessageContent.FromJson(BinaryData.FromString("""{"reading":42}""")))));
+        transport.OutstandingPublication = new TransportPublication(
+            messageId,
+            ["Topic-A"],
+            "application/json",
+            BinaryData.FromString("""{"messageContent":{"content":{"reading":42}}}"""));
+
+        RemovePublicationResult result = await CreateService(
+                sessionRepository: sessionRepository,
+                publicationRepository: publicationRepository,
+                transport: transport)
             .RemovePublicationAsync(sessionId.ToString(), CancellationToken.None);
 
         Assert.True(result.Succeeded);
@@ -670,11 +697,13 @@ public sealed class ConsumerSubscriptionSessionServiceTests
         FakeChannelRepository? channelRepository = null,
         FakeSessionRepository? sessionRepository = null,
         FakeSubscriptionTransport? transport = null,
-        FakeChannelTopicTransport? topicTransport = null)
+        FakeChannelTopicTransport? topicTransport = null,
+        FakeProviderPublicationRepository? publicationRepository = null)
     {
         return new ConsumerSubscriptionSessionService(
             channelRepository ?? new FakeChannelRepository(),
             sessionRepository ?? new FakeSessionRepository(),
+            publicationRepository ?? new FakeProviderPublicationRepository(),
             transport ?? new FakeSubscriptionTransport(),
             topicTransport ?? new FakeChannelTopicTransport(),
             NullLogger<ConsumerSubscriptionSessionService>.Instance);
@@ -811,6 +840,7 @@ public sealed class ConsumerSubscriptionSessionServiceTests
         public RequestFailedException? CreateException { get; init; }
         public RequestFailedException? DeleteException { get; init; }
         public TransportPublication? Publication { get; init; }
+        public TransportPublication? OutstandingPublication { get; set; }
         public List<(string TopicName, string SubscriptionName, IReadOnlyList<string> ConsumerTopics)> CreatedSubscriptions { get; } = [];
         public List<(string TopicName, string SubscriptionName)> DeletedSubscriptions { get; } = [];
         public List<(Guid ReadSessionId, string TopicName, string SubscriptionName)> ReadRequests { get; } = [];
@@ -854,7 +884,13 @@ public sealed class ConsumerSubscriptionSessionServiceTests
             CancellationToken cancellationToken)
         {
             ReadRequests.Add((sessionId, topicName, subscriptionName));
+            OutstandingPublication = Publication;
             return Task.FromResult(Publication);
+        }
+
+        public Task<TransportPublication?> GetOutstandingPublicationAsync(Guid sessionId, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(OutstandingPublication);
         }
 
         public Task RemovePublicationAsync(
@@ -864,7 +900,82 @@ public sealed class ConsumerSubscriptionSessionServiceTests
             CancellationToken cancellationToken)
         {
             RemoveRequests.Add((sessionId, topicName, subscriptionName));
+            OutstandingPublication = null;
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeProviderPublicationRepository : IProviderPublicationRepository
+    {
+        private readonly Dictionary<Guid, ProviderPublicationData> _publications = [];
+        private readonly Dictionary<Guid, ProviderPublicationData> _outstanding = [];
+
+        public void SeedPublication(ProviderPublicationData publication)
+        {
+            _publications[publication.MessageId] = publication;
+        }
+
+        public void SeedOutstanding(Guid consumerSessionId, ProviderPublicationData publication)
+        {
+            _publications[publication.MessageId] = publication;
+            _outstanding[consumerSessionId] = publication;
+        }
+
+        public Task<ProviderPublicationRepositoryResult> InsertPublishedPublicationAsync(ProviderPublicationCreateData publication, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<ProviderPublicationRepositoryResult> ExpirePublicationAsync(Guid providerSessionId, Guid channelId, Guid messageId, DateTime expiredUtc, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<PublicationExpirationStateResult> IsPublicationExpiredAsync(Guid messageId, Guid consumerSessionId, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(PublicationExpirationStateResult.Success(false));
+        }
+
+        public Task<ProviderPublicationRepositoryResult> MarkRecipientOutstandingAsync(Guid messageId, Guid consumerSessionId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<ReadProviderPublicationResult> GetOutstandingPublicationAsync(Guid consumerSessionId, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(
+                _outstanding.TryGetValue(consumerSessionId, out ProviderPublicationData? publication)
+                    ? ReadProviderPublicationResult.Success(publication)
+                    : ReadProviderPublicationResult.NoPublication());
+        }
+
+        public Task<ReadProviderPublicationResult> TryMarkPublicationOutstandingAsync(Guid messageId, Guid consumerSessionId, CancellationToken cancellationToken)
+        {
+            if (_outstanding.TryGetValue(consumerSessionId, out ProviderPublicationData? existing))
+            {
+                return Task.FromResult(ReadProviderPublicationResult.Success(existing));
+            }
+
+            if (!_publications.TryGetValue(messageId, out ProviderPublicationData? publication))
+            {
+                return Task.FromResult(ReadProviderPublicationResult.NoPublication());
+            }
+
+            _outstanding[consumerSessionId] = publication;
+            return Task.FromResult(ReadProviderPublicationResult.Success(publication));
+        }
+
+        public Task<ProviderPublicationRepositoryResult> MarkRecipientSkippedExpiredAsync(Guid messageId, Guid consumerSessionId, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(ProviderPublicationRepositoryResult.Success());
+        }
+
+        public Task<ProviderPublicationRepositoryResult> MarkRecipientRemovedAsync(Guid messageId, Guid consumerSessionId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<RemoveProviderPublicationRecipientResult> RemoveOutstandingPublicationAsync(Guid consumerSessionId, CancellationToken cancellationToken)
+        {
+            if (!_outstanding.Remove(consumerSessionId, out ProviderPublicationData? publication))
+            {
+                return Task.FromResult(RemoveProviderPublicationRecipientResult.Success(null));
+            }
+
+            return Task.FromResult(RemoveProviderPublicationRecipientResult.Success(publication.MessageId));
+        }
+
+        public Task<ProviderPublicationRepositoryResult> MarkRecipientsSubscriptionDeletedAsync(Guid consumerSessionId, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(ProviderPublicationRepositoryResult.Success());
         }
     }
 

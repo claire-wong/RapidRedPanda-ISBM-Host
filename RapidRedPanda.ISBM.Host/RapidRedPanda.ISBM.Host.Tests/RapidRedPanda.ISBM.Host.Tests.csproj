@@ -39,6 +39,7 @@
     <Compile Include="SessionCloseServiceTests.cs" />
     <Compile Include="SqlConsumerRequestRepositoryTests.cs" />
     <Compile Include="SqlPublicationNotificationRepositoryTests.cs" />
+    <Compile Include="ProviderPublicationExpirationTests.cs" />
     <Compile Include="PhaseOneSqlScriptTests.cs" />
     <Compile Include="PublicationTopicRoutingTests.cs" />
     <Compile Include="UsernameTokenParserTests.cs" />

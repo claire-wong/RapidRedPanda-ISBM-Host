@@ -350,7 +350,8 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
                     session.ChannelId,
                     envelope.Topics,
                     DateTime.UtcNow,
-                    timeToLive is TimeSpan ttl ? DateTime.UtcNow.Add(ttl) : null),
+                    timeToLive is TimeSpan ttl ? DateTime.UtcNow.Add(ttl) : null,
+                    SqlMessageContentAdapter.ToSql(messageContent)),
                 cancellationToken);
 
         if (!insertPublicationResult.Succeeded)
