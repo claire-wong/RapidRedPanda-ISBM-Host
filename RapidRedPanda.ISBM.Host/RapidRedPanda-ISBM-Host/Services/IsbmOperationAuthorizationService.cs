@@ -14,6 +14,7 @@ public enum IsbmAuthorizationOutcome
 {
     Authorized,
     NotFoundOrUnauthorized,
+    WrongSessionKind,
     Failure
 }
 
@@ -73,12 +74,25 @@ public sealed class IsbmOperationAuthorizationService : IIsbmOperationAuthorizat
             return IsbmAuthorizationOutcome.NotFoundOrUnauthorized;
         }
 
-        return kind switch
+        IsbmAuthorizationOutcome requestedKindOutcome = kind switch
         {
             IsbmSessionKind.ConsumerPublication => await AuthorizeSubscriptionAsync(id, credentials, cancellationToken),
             IsbmSessionKind.ProviderPublication => await AuthorizePublicationAsync(id, credentials, cancellationToken),
             IsbmSessionKind.ProviderRequest => await AuthorizeProviderRequestAsync(id, credentials, cancellationToken),
             IsbmSessionKind.ConsumerRequest => await AuthorizeConsumerRequestAsync(id, credentials, cancellationToken),
+            _ => IsbmAuthorizationOutcome.Failure
+        };
+
+        if (requestedKindOutcome != IsbmAuthorizationOutcome.NotFoundOrUnauthorized)
+        {
+            return requestedKindOutcome;
+        }
+
+        SessionExistenceProbe otherSessionProbe = await ProbeAnyOtherSessionAsync(id, exceptKind: kind, cancellationToken);
+        return otherSessionProbe switch
+        {
+            SessionExistenceProbe.Exists => IsbmAuthorizationOutcome.WrongSessionKind,
+            SessionExistenceProbe.Missing => IsbmAuthorizationOutcome.NotFoundOrUnauthorized,
             _ => IsbmAuthorizationOutcome.Failure
         };
     }
@@ -137,6 +151,70 @@ public sealed class IsbmOperationAuthorizationService : IIsbmOperationAuthorizat
             : await ValidateAsync(result.Session.ChannelId, result.Session.AuthenticatedTokenUsername, credentials, cancellationToken);
     }
 
+    private async Task<SessionExistenceProbe> ProbeAnyOtherSessionAsync(
+        Guid id,
+        IsbmSessionKind exceptKind,
+        CancellationToken cancellationToken)
+    {
+        if (exceptKind != IsbmSessionKind.ConsumerPublication)
+        {
+            GetSubscriptionSessionResult subscription = await _subscriptions.GetSubscriptionSessionAsync(id, cancellationToken);
+            if (subscription.Session is not null)
+            {
+                return SessionExistenceProbe.Exists;
+            }
+
+            if (subscription.FailureKind != GetSubscriptionSessionFailureKind.NotFound)
+            {
+                return SessionExistenceProbe.Failure;
+            }
+        }
+
+        if (exceptKind != IsbmSessionKind.ProviderPublication)
+        {
+            GetProviderPublicationSessionResult publication = await _publications.GetProviderPublicationSessionAsync(id, cancellationToken);
+            if (publication.Session is not null)
+            {
+                return SessionExistenceProbe.Exists;
+            }
+
+            if (publication.FailureKind != GetProviderPublicationSessionFailureKind.NotFound)
+            {
+                return SessionExistenceProbe.Failure;
+            }
+        }
+
+        if (exceptKind != IsbmSessionKind.ProviderRequest)
+        {
+            GetProviderRequestSessionResult providerRequest = await _providerRequests.GetProviderRequestSessionAsync(id, cancellationToken);
+            if (providerRequest.Session is not null)
+            {
+                return SessionExistenceProbe.Exists;
+            }
+
+            if (providerRequest.FailureKind != GetProviderRequestSessionFailureKind.NotFound)
+            {
+                return SessionExistenceProbe.Failure;
+            }
+        }
+
+        if (exceptKind != IsbmSessionKind.ConsumerRequest)
+        {
+            GetConsumerRequestSessionResult consumerRequest = await _consumerRequests.GetConsumerRequestSessionAsync(id, cancellationToken);
+            if (consumerRequest.Session is not null)
+            {
+                return SessionExistenceProbe.Exists;
+            }
+
+            if (consumerRequest.FailureKind != GetConsumerRequestSessionFailureKind.NotFound)
+            {
+                return SessionExistenceProbe.Failure;
+            }
+        }
+
+        return SessionExistenceProbe.Missing;
+    }
+
     private async Task<IsbmAuthorizationOutcome> ValidateAsync(Guid channelId, string? expectedUsername, ChannelCredentials? credentials, CancellationToken cancellationToken)
     {
         ValidateChannelCredentialsResult result = await _channels.ValidateChannelCredentialsAsync(channelId, expectedUsername, credentials, cancellationToken);
@@ -149,4 +227,11 @@ public sealed class IsbmOperationAuthorizationService : IIsbmOperationAuthorizat
 
     private static IsbmAuthorizationOutcome MapLookup(bool notFound) =>
         notFound ? IsbmAuthorizationOutcome.NotFoundOrUnauthorized : IsbmAuthorizationOutcome.Failure;
+
+    private enum SessionExistenceProbe
+    {
+        Missing,
+        Exists,
+        Failure
+    }
 }

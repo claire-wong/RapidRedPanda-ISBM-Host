@@ -271,6 +271,7 @@ public sealed class ConsumerRequestServiceController : Controller
         {
             IsbmAuthorizationOutcome.Authorized => null,
             IsbmAuthorizationOutcome.NotFoundOrUnauthorized => NotFound(new FaultResponse("SessionFault")),
+            IsbmAuthorizationOutcome.WrongSessionKind => UnprocessableEntity(new FaultResponse("OperationFault")),
             _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
         };
     }
