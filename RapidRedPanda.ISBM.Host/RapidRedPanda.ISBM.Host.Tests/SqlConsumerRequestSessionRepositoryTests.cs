@@ -9,7 +9,8 @@ public sealed class SqlConsumerRequestSessionRepositoryTests
 
         Assert.Contains("await connection.BeginTransactionAsync", source, StringComparison.Ordinal);
         Assert.Contains("set SessionState = @ClosedState", source, StringComparison.Ordinal);
-        Assert.Contains("ClosedUtc = coalesce(ClosedUtc, @ClosedUtc)", source, StringComparison.Ordinal);
+        Assert.Contains("ClosedUtc = @ClosedUtc", source, StringComparison.Ordinal);
+        Assert.Contains("and ClosedUtc is null", source, StringComparison.Ordinal);
         Assert.Contains("SqlResponseNotificationSuppression.SuppressForConsumerRequestSessionAsync", source, StringComparison.Ordinal);
         Assert.Contains("PublicationNotificationSuppressionReasons.SessionClosed", source, StringComparison.Ordinal);
         Assert.Contains("await transaction.CommitAsync", source, StringComparison.Ordinal);

@@ -172,6 +172,14 @@ public sealed class SqlConsumerRequestSessionRepository : IConsumerRequestSessio
                         "Consumer request session was not found.");
                 }
 
+                await SqlResponseNotificationSuppression.SuppressForConsumerRequestSessionAsync(
+                    connection,
+                    transaction,
+                    sessionId,
+                    DateTime.UtcNow,
+                    PublicationNotificationSuppressionReasons.SessionClosed,
+                    cancellationToken);
+
                 await transaction.CommitAsync(cancellationToken);
                 return CloseConsumerRequestSessionResult.Success();
             }

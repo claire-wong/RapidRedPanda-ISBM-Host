@@ -5,7 +5,7 @@ namespace RapidRedPanda.ISBM.Host.Tests;
 public sealed class SqlPublicationNotificationRepositoryTests
 {
     [Fact]
-    public async Task ClaimDueSource_UsesAtomicSqlLeaseAndReturnsPublicationAndRequestTopics()
+    public async Task ClaimDueSource_UsesAtomicSqlLeaseAndReturnsPublicationRequestAndResponseNotifications()
     {
         string source = await ReadHostFileAsync("Data", "SqlPublicationNotificationRepository.cs");
 
@@ -16,14 +16,17 @@ public sealed class SqlPublicationNotificationRepositoryTests
         Assert.Contains("declare @SqlUtcNow datetime2(7) = sysutcdatetime()", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("AttemptCount = AttemptCount + 1", source, StringComparison.Ordinal);
         Assert.Contains("NotificationTopics", source, StringComparison.Ordinal);
-        Assert.Contains("notification.NotificationServiceType in (@PublicationServiceType, @RequestServiceType)", source, StringComparison.Ordinal);
+        Assert.Contains("notification.NotificationServiceType in (@PublicationServiceType, @RequestServiceType, @ResponseServiceType)", source, StringComparison.Ordinal);
         Assert.Contains("State in (@PendingState, @RetryScheduledState)", source, StringComparison.Ordinal);
         Assert.Contains("notification.State = @SendingState", source, StringComparison.Ordinal);
         Assert.Contains("notification.LockedUntilUtc < @SqlUtcNow", source, StringComparison.Ordinal);
         Assert.Contains("notification.DeliveryDeadlineUtc <= @SqlUtcNow", source, StringComparison.Ordinal);
         Assert.Contains("claimed.ProviderRequestSessionId", source, StringComparison.Ordinal);
         Assert.Contains("left join dbo.ConsumerRequests request", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("left join dbo.ConsumerRequestSessions responseSession", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("left join dbo.RequestResponses response", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("NotificationServiceTypes.Request => GetRequestSuppressionReason(row)", source, StringComparison.Ordinal);
+        Assert.Contains("NotificationServiceTypes.Response => GetResponseSuppressionReason(row)", source, StringComparison.Ordinal);
         Assert.Contains("inserted.ProviderRequestSessionId", source, StringComparison.Ordinal);
         Assert.Contains("claimed.ProviderRequestSessionId", source, StringComparison.Ordinal);
         Assert.DoesNotContain("ReceiveMessageAsync", source, StringComparison.Ordinal);
@@ -62,7 +65,9 @@ public sealed class SqlPublicationNotificationRepositoryTests
         Assert.Contains("publication.ExpiredUtc is not null or publication.EffectiveExpiryUtc <= @SqlUtcNow", source, StringComparison.Ordinal);
         Assert.Contains("request.ExpiredUtc is not null or request.EffectiveExpiryUtc <= @SqlUtcNow", source, StringComparison.Ordinal);
         Assert.Contains("request.MessageId is null then @RequestMissingReason", source, StringComparison.Ordinal);
+        Assert.Contains("response.MessageId is null or response.RemovedUtc is not null", source, StringComparison.Ordinal);
         Assert.Contains("left join dbo.ProviderRequestSessions requestSession", source, StringComparison.Ordinal);
+        Assert.Contains("left join dbo.ConsumerRequestSessions responseSession", source, StringComparison.Ordinal);
         Assert.Contains("requestSession.SessionState <> @OpenSessionState", source, StringComparison.Ordinal);
         Assert.Contains("notification.DeliveryDeadlineUtc <= @SqlUtcNow", source, StringComparison.Ordinal);
         Assert.Contains("notification.AttemptCount >= @MaximumAttempts", source, StringComparison.Ordinal);

@@ -357,7 +357,10 @@ public sealed class PublicationNotificationDispatcher : BackgroundService
         error = "Invalid notification shape.";
         if (string.Equals(notification.ServiceType, NotificationServiceTypes.Publication, StringComparison.Ordinal))
         {
-            if (notification.ConsumerSessionId is not null && notification.ProviderRequestSessionId is null)
+            if (notification.ConsumerSessionId is not null &&
+                notification.ProviderRequestSessionId is null &&
+                notification.ConsumerRequestSessionId is null &&
+                notification.RequestMessageId is null)
             {
                 return true;
             }
@@ -368,12 +371,29 @@ public sealed class PublicationNotificationDispatcher : BackgroundService
 
         if (string.Equals(notification.ServiceType, NotificationServiceTypes.Request, StringComparison.Ordinal))
         {
-            if (notification.ProviderRequestSessionId is not null && notification.ConsumerSessionId is null)
+            if (notification.ProviderRequestSessionId is not null &&
+                notification.ConsumerSessionId is null &&
+                notification.ConsumerRequestSessionId is null &&
+                notification.RequestMessageId is null)
             {
                 return true;
             }
 
             error = "Invalid request notification shape.";
+            return false;
+        }
+
+        if (string.Equals(notification.ServiceType, NotificationServiceTypes.Response, StringComparison.Ordinal))
+        {
+            if (notification.ConsumerRequestSessionId is not null &&
+                notification.RequestMessageId is not null &&
+                notification.ConsumerSessionId is null &&
+                notification.ProviderRequestSessionId is null)
+            {
+                return true;
+            }
+
+            error = "Invalid response notification shape.";
             return false;
         }
 
@@ -383,9 +403,12 @@ public sealed class PublicationNotificationDispatcher : BackgroundService
 
     private static Guid GetRecipientSessionId(ClaimedPublicationNotification notification)
     {
-        return string.Equals(notification.ServiceType, NotificationServiceTypes.Request, StringComparison.Ordinal)
-            ? notification.ProviderRequestSessionId!.Value
-            : notification.ConsumerSessionId!.Value;
+        return notification.ServiceType switch
+        {
+            NotificationServiceTypes.Request => notification.ProviderRequestSessionId!.Value,
+            NotificationServiceTypes.Response => notification.ConsumerRequestSessionId!.Value,
+            _ => notification.ConsumerSessionId!.Value
+        };
     }
 
     private void LogCompletionResult(
