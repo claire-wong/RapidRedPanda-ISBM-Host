@@ -39,6 +39,7 @@ public enum OpenProviderRequestSessionFailureKind
 {
     ParameterFault,
     ChannelFault,
+    InvalidChannelType,
     SecurityTokenFault,
     OperationFault
 }
@@ -233,6 +234,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
             {
                 GetChannelForSubscriptionFailureKind.NotFound => OpenProviderRequestSessionResult.Failure(OpenProviderRequestSessionFailureKind.ChannelFault),
                 GetChannelForSubscriptionFailureKind.SecurityTokenInvalid => OpenProviderRequestSessionResult.Failure(OpenProviderRequestSessionFailureKind.SecurityTokenFault),
+                GetChannelForSubscriptionFailureKind.InvalidChannelType => OpenProviderRequestSessionResult.Failure(OpenProviderRequestSessionFailureKind.InvalidChannelType),
                 _ => OpenProviderRequestSessionResult.Failure(OpenProviderRequestSessionFailureKind.OperationFault)
             };
         }

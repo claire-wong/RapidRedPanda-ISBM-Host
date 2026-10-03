@@ -32,6 +32,7 @@ public enum OpenSubscriptionSessionFailureKind
 {
     ParameterFault,
     ChannelFault,
+    InvalidChannelType,
     SecurityTokenFault,
     OperationFault
 }
@@ -214,7 +215,7 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
             {
                 GetChannelForSubscriptionFailureKind.NotFound => OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.ChannelFault),
                 GetChannelForSubscriptionFailureKind.SecurityTokenInvalid => OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.SecurityTokenFault),
-                GetChannelForSubscriptionFailureKind.InvalidChannelType => OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.OperationFault),
+                GetChannelForSubscriptionFailureKind.InvalidChannelType => OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.InvalidChannelType),
                 _ => OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.OperationFault)
             };
         }

@@ -47,6 +47,7 @@ public enum OpenConsumerRequestSessionFailureKind
 {
     ParameterFault,
     ChannelFault,
+    InvalidChannelType,
     SecurityTokenFault,
     OperationFault
 }
@@ -243,6 +244,7 @@ public sealed class ConsumerRequestSessionService : IConsumerRequestSessionServi
             {
                 GetChannelForSubscriptionFailureKind.NotFound => OpenConsumerRequestSessionResult.Failure(OpenConsumerRequestSessionFailureKind.ChannelFault),
                 GetChannelForSubscriptionFailureKind.SecurityTokenInvalid => OpenConsumerRequestSessionResult.Failure(OpenConsumerRequestSessionFailureKind.SecurityTokenFault),
+                GetChannelForSubscriptionFailureKind.InvalidChannelType => OpenConsumerRequestSessionResult.Failure(OpenConsumerRequestSessionFailureKind.InvalidChannelType),
                 _ => OpenConsumerRequestSessionResult.Failure(OpenConsumerRequestSessionFailureKind.OperationFault)
             };
         }

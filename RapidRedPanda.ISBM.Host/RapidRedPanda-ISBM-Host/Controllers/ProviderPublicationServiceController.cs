@@ -61,6 +61,7 @@ public sealed class ProviderPublicationServiceController : Controller
         {
             OpenPublicationSessionFailureKind.ParameterFault => BadRequest(new FaultResponse("ParameterFault")),
             OpenPublicationSessionFailureKind.ChannelFault => NotFound(new FaultResponse("ChannelFault")),
+            OpenPublicationSessionFailureKind.InvalidChannelType => UnprocessableEntity(new FaultResponse("OperationFault")),
             OpenPublicationSessionFailureKind.SecurityTokenFault => NotFound(new FaultResponse("ChannelFault")),
             _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
         };

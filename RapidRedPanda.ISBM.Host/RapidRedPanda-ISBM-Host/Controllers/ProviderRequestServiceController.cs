@@ -85,6 +85,7 @@ public sealed class ProviderRequestServiceController : Controller
         {
             OpenProviderRequestSessionFailureKind.ParameterFault => BadRequest(new FaultResponse("ParameterFault")),
             OpenProviderRequestSessionFailureKind.ChannelFault => NotFound(new FaultResponse("ChannelFault")),
+            OpenProviderRequestSessionFailureKind.InvalidChannelType => UnprocessableEntity(new FaultResponse("OperationFault")),
             OpenProviderRequestSessionFailureKind.SecurityTokenFault => NotFound(new FaultResponse("ChannelFault")),
             _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
         };
@@ -109,7 +110,7 @@ public sealed class ProviderRequestServiceController : Controller
 
         if (result.Succeeded && !result.HasRequest)
         {
-            return NoContent();
+            return NotFound(new FaultResponse("MessageFault"));
         }
 
         if (result.Succeeded && result.Request is ReadRequestData request)
@@ -210,7 +211,7 @@ public sealed class ProviderRequestServiceController : Controller
 
         if (result.Succeeded && !result.ResponseCreated)
         {
-            return NoContent();
+            return NotFound(new FaultResponse("MessageFault"));
         }
 
         if (result.Succeeded && result.MessageId is Guid messageId)

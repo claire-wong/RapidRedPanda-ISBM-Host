@@ -84,6 +84,7 @@ public sealed class ConsumerPublicationServiceController : Controller
         {
             OpenSubscriptionSessionFailureKind.ParameterFault => BadRequest(new FaultResponse("ParameterFault")),
             OpenSubscriptionSessionFailureKind.ChannelFault => NotFound(new FaultResponse("ChannelFault")),
+            OpenSubscriptionSessionFailureKind.InvalidChannelType => UnprocessableEntity(new FaultResponse("OperationFault")),
             OpenSubscriptionSessionFailureKind.SecurityTokenFault => NotFound(new FaultResponse("ChannelFault")),
             _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
         };
@@ -108,7 +109,7 @@ public sealed class ConsumerPublicationServiceController : Controller
 
         if (result.Succeeded && !result.HasPublication)
         {
-            return NoContent();
+            return NotFound(new FaultResponse("MessageFault"));
         }
 
         if (result.Succeeded && result.Publication is ReadPublicationData publication)

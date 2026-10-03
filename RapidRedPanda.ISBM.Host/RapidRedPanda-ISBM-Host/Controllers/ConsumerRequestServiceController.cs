@@ -77,6 +77,7 @@ public sealed class ConsumerRequestServiceController : Controller
         {
             OpenConsumerRequestSessionFailureKind.ParameterFault => BadRequest(new FaultResponse("ParameterFault")),
             OpenConsumerRequestSessionFailureKind.ChannelFault => NotFound(new FaultResponse("ChannelFault")),
+            OpenConsumerRequestSessionFailureKind.InvalidChannelType => UnprocessableEntity(new FaultResponse("OperationFault")),
             OpenConsumerRequestSessionFailureKind.SecurityTokenFault => NotFound(new FaultResponse("ChannelFault")),
             _ => StatusCode(StatusCodes.Status500InternalServerError, new FaultResponse("OperationFault"))
         };
@@ -204,7 +205,7 @@ public sealed class ConsumerRequestServiceController : Controller
 
         if (result.Succeeded && !result.HasResponse)
         {
-            return NoContent();
+            return NotFound(new FaultResponse("MessageFault"));
         }
 
         if (result.Succeeded && result.Response is ReadResponseData response)

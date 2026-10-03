@@ -36,6 +36,7 @@ public enum OpenPublicationSessionFailureKind
 {
     ParameterFault,
     ChannelFault,
+    InvalidChannelType,
     SecurityTokenFault,
     OperationFault
 }
@@ -183,7 +184,7 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
             {
                 GetChannelForSubscriptionFailureKind.NotFound => OpenPublicationSessionResult.Failure(OpenPublicationSessionFailureKind.ChannelFault),
                 GetChannelForSubscriptionFailureKind.SecurityTokenInvalid => OpenPublicationSessionResult.Failure(OpenPublicationSessionFailureKind.SecurityTokenFault),
-                GetChannelForSubscriptionFailureKind.InvalidChannelType => OpenPublicationSessionResult.Failure(OpenPublicationSessionFailureKind.OperationFault),
+                GetChannelForSubscriptionFailureKind.InvalidChannelType => OpenPublicationSessionResult.Failure(OpenPublicationSessionFailureKind.InvalidChannelType),
                 _ => OpenPublicationSessionResult.Failure(OpenPublicationSessionFailureKind.OperationFault)
             };
         }
