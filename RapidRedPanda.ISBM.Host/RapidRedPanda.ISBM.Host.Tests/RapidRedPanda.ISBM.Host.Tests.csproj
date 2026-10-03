@@ -51,6 +51,7 @@
     <Compile Include="PhaseTwoLifecycleComplianceTests.cs" />
     <Compile Include="PhaseThreeDurableRequestLifecycleTests.cs" />
     <Compile Include="PhaseFourRestFaultStatusTests.cs" />
+    <Compile Include="PhaseSevenComplianceRegressionTests.cs" />
   </ItemGroup>
 
   <ItemGroup>
