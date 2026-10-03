@@ -46,6 +46,7 @@
     <Compile Include="ConfigurationDiscoveryControllerTests.cs" />
     <Compile Include="PhaseOneAuthenticationCoverageTests.cs" />
     <Compile Include="PhaseTwoLifecycleComplianceTests.cs" />
+    <Compile Include="PhaseThreeDurableRequestLifecycleTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

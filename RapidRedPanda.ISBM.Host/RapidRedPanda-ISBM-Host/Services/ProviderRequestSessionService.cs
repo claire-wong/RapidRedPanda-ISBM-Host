@@ -354,8 +354,15 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
         ProviderRequestSessionData session = sessionResult.Session;
         try
         {
-            TransportPublication? outstandingRequest = await _subscriptionTransport.GetOutstandingPublicationAsync(session.SessionId, cancellationToken);
-            if (outstandingRequest is not null)
+            ReadConsumerRequestResult outstandingResult = await _requestRepository.GetOutstandingRequestAsync(
+                session.SessionId,
+                cancellationToken);
+            if (!outstandingResult.Succeeded)
+            {
+                return ReadRequestResult.Failure(ReadRequestFailureKind.OperationFault);
+            }
+
+            if (outstandingResult.HasRequest && outstandingResult.Request is ConsumerRequestData outstandingRequest)
             {
                 return ToReadRequestResult(session, outstandingRequest);
             }
@@ -373,18 +380,20 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
                     return ReadRequestResult.NoRequest();
                 }
 
-                RequestExpirationStateResult expirationState = await _requestRepository.IsRequestExpiredAsync(
+                ReadConsumerRequestResult claimResult = await _requestRepository.TryMarkRequestOutstandingAsync(
                     request.PublicationId,
                     session.SessionId,
+                    session.ChannelId,
+                    session.RequestedTopics,
                     cancellationToken);
-                if (!expirationState.Succeeded)
+                if (!claimResult.Succeeded)
                 {
                     return ReadRequestResult.Failure(ReadRequestFailureKind.OperationFault);
                 }
 
-                if (!expirationState.IsExpired)
+                if (claimResult.HasRequest && claimResult.Request is ConsumerRequestData claimedRequest)
                 {
-                    return ToReadRequestResult(session, request);
+                    return ToReadRequestResult(session, claimedRequest);
                 }
 
                 await _subscriptionTransport.RemovePublicationAsync(
@@ -425,11 +434,28 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
         ProviderRequestSessionData session = sessionResult.Session;
         try
         {
-            await _subscriptionTransport.RemovePublicationAsync(
+            TransportPublication? outstandingTransportRequest = await _subscriptionTransport.GetOutstandingPublicationAsync(
                 session.SessionId,
-                session.AzureTopicName,
-                session.AzureSubscriptionName,
                 cancellationToken);
+
+            RemoveConsumerRequestRecipientResult removeResult = await _requestRepository.RemoveOutstandingRequestAsync(
+                session.SessionId,
+                cancellationToken);
+            if (!removeResult.Succeeded)
+            {
+                return RemoveRequestResult.Failure(RemoveRequestFailureKind.OperationFault);
+            }
+
+            if (outstandingTransportRequest is not null &&
+                removeResult.RequestMessageId is Guid removedMessageId &&
+                outstandingTransportRequest.PublicationId == removedMessageId)
+            {
+                await _subscriptionTransport.RemovePublicationAsync(
+                    session.SessionId,
+                    session.AzureTopicName,
+                    session.AzureSubscriptionName,
+                    cancellationToken);
+            }
 
             return RemoveRequestResult.Success();
         }
@@ -482,8 +508,9 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
                 : PostResponseResult.Failure(PostResponseFailureKind.SessionFault);
         }
 
-        ActiveRequestMatchResult activeRequest = await _responseRepository.FindActiveRequestAsync(
+        RequestResponseEligibilityResult activeRequest = await _requestRepository.FindRespondableRequestAsync(
             parsedRequestMessageId,
+            session.SessionId,
             session.ChannelId,
             cancellationToken);
         if (!activeRequest.Succeeded)
@@ -491,7 +518,7 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
             return PostResponseResult.Failure(PostResponseFailureKind.OperationFault);
         }
 
-        if (!activeRequest.HasActiveRequest || activeRequest.ConsumerRequestSessionId is not Guid consumerRequestSessionId)
+        if (!activeRequest.CanRespond || activeRequest.ConsumerRequestSessionId is not Guid consumerRequestSessionId)
         {
             return PostResponseResult.NoAction();
         }
@@ -542,6 +569,17 @@ public sealed class ProviderRequestSessionService : IProviderRequestSessionServi
         }
 
         return ReadRequestResult.Success(new ReadRequestData(request.PublicationId, request.Topics, messageContent!));
+    }
+
+    private ReadRequestResult ToReadRequestResult(ProviderRequestSessionData session, ConsumerRequestData request)
+    {
+        if (!SqlMessageContentAdapter.TryFromSql(request.MessageContent, out InternalMessageContent? messageContent))
+        {
+            _logger.LogError("Stored request message content was not a valid MessageContent value. SessionId: {SessionId}. MessageId: {MessageId}.", session.SessionId, request.MessageId);
+            return ReadRequestResult.Failure(ReadRequestFailureKind.OperationFault);
+        }
+
+        return ReadRequestResult.Success(new ReadRequestData(request.MessageId, [request.Topic], messageContent!));
     }
 
     private async Task<GetOpenProviderRequestSessionResult> GetOpenProviderRequestSessionAsync(

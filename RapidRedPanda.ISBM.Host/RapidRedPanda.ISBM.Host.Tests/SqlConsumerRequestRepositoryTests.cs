@@ -66,8 +66,42 @@ public sealed class SqlConsumerRequestRepositoryTests
         Assert.Contains("session.ListenerUrl", source, StringComparison.Ordinal);
         Assert.Contains("cross join dbo.ConsumerRequestTopics topic", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("topic.TopicValue", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("MessageContent", source, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("MessageContent", source, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("RequestContent", source, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PhaseThreeMigration_AddsRequestContentAndRecipientStateWithoutCascadeDeletes()
+    {
+        string migration = await ReadMigrationAsync("019_AddRequestRecipientState.sql");
+
+        Assert.Contains("alter table dbo.ConsumerRequests", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("MessageContent nvarchar(max) null", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Payload varbinary(max) null", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("create table dbo.ConsumerRequestRecipients", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("RequestMessageId uniqueidentifier not null", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ProviderRequestSessionId uniqueidentifier not null", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TopicValue nvarchar(512) not null", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("primary key clustered (RequestMessageId, ProviderRequestSessionId)", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("FK_ConsumerRequestRecipients_Requests", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("FK_ConsumerRequestRecipients_ProviderRequestSessions", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("UQ_ConsumerRequestRecipients_Provider_Outstanding", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("on delete cascade", migration, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RequestRepositorySource_UsesDurableRecipientStateForReadRemoveAndResponseEligibility()
+    {
+        string source = await ReadHostFileAsync("Data", "SqlConsumerRequestRepository.cs");
+
+        Assert.Contains("GetOutstandingRequestAsync", source, StringComparison.Ordinal);
+        Assert.Contains("TryMarkRequestOutstandingAsync", source, StringComparison.Ordinal);
+        Assert.Contains("RemoveOutstandingRequestAsync", source, StringComparison.Ordinal);
+        Assert.Contains("FindRespondableRequestAsync", source, StringComparison.Ordinal);
+        Assert.Contains("ConsumerRequestRecipients", source, StringComparison.Ordinal);
+        Assert.Contains("ConsumerRequestRecipientStates.Outstanding", source, StringComparison.Ordinal);
+        Assert.Contains("ConsumerRequestRecipientStates.Removed", source, StringComparison.Ordinal);
+        Assert.Contains("request.MessageContent is not null", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -128,6 +162,22 @@ public sealed class SqlConsumerRequestRepositoryTests
             "..",
             "RapidRedPanda-ISBM-Host",
             Path.Combine(pathSegments)));
+
+        return await File.ReadAllTextAsync(path);
+    }
+
+    private static async Task<string> ReadMigrationAsync(string fileName)
+    {
+        string path = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "..",
+            "..",
+            "Database",
+            "Scripts",
+            "Migrations",
+            fileName));
 
         return await File.ReadAllTextAsync(path);
     }

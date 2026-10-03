@@ -20,7 +20,7 @@ public sealed class ProviderConsumerResponseRoundTripTests
         ProviderRequestSessionService providerService = new(
             channelRepository,
             new FakeProviderRequestSessionRepository(providerSessionId, channelId),
-            new UnusedConsumerRequestRepository(),
+            new RespondableConsumerRequestRepository(consumerSessionId),
             responseRepository,
             new UnusedSubscriptionTransport(),
             new NoOpChannelTopicTransport(),
@@ -203,6 +203,20 @@ public sealed class ProviderConsumerResponseRoundTripTests
         }
 
         public Task<CloseConsumerRequestSessionResult> CloseConsumerRequestSessionAsync(Guid sessionId, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    private sealed class RespondableConsumerRequestRepository(Guid consumerSessionId) : IConsumerRequestRepository
+    {
+        public Task<ConsumerRequestRepositoryResult> InsertPostedRequestAsync(ConsumerRequestCreateData request, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<ConsumerRequestRepositoryResult> ExpireRequestAsync(Guid consumerSessionId, Guid channelId, Guid messageId, DateTime expiredUtc, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<RequestExpirationStateResult> IsRequestExpiredAsync(Guid messageId, Guid providerSessionId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<RequestResponseEligibilityResult> FindRespondableRequestAsync(Guid requestMessageId, Guid providerSessionId, Guid channelId, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(RequestResponseEligibilityResult.Success(consumerSessionId));
+        }
     }
 
     private sealed class UnusedConsumerRequestRepository : IConsumerRequestRepository

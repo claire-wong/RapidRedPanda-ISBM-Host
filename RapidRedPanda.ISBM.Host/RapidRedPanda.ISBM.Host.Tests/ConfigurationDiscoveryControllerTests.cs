@@ -38,7 +38,7 @@ public sealed class ConfigurationDiscoveryControllerTests
         Assert.Equal(1, response.SecurityLevelConformance);
         Assert.True(response.IsChannelCreationEnabled);
         Assert.False(response.IsOpenChannelSecuringEnabled);
-        Assert.False(response.IsDeadLetteringEnabled);
+        Assert.True(response.IsDeadLetteringEnabled);
         Assert.False(response.IsWhitelistRequired);
         Assert.Null(response.DefaultExpiryDuration);
         Assert.Equal("https://github.com/claire-wong/RapidRedPanda-ISBM-Host", response.AdditionalInformationUrl);

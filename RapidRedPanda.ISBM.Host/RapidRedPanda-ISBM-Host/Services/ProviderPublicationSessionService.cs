@@ -411,8 +411,8 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
 
         return expireResult.FailureKind switch
         {
-            ProviderPublicationRepositoryFailureKind.NotFound => ExpirePublicationResult.Failure(ExpirePublicationFailureKind.MessageFault),
-            ProviderPublicationRepositoryFailureKind.ChannelMismatch => ExpirePublicationResult.Failure(ExpirePublicationFailureKind.MessageFault),
+            ProviderPublicationRepositoryFailureKind.NotFound => ExpirePublicationResult.Success(),
+            ProviderPublicationRepositoryFailureKind.ChannelMismatch => ExpirePublicationResult.Success(),
             _ => ExpirePublicationResult.Failure(ExpirePublicationFailureKind.OperationFault)
         };
     }
@@ -450,7 +450,7 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
 
         if (string.IsNullOrWhiteSpace(expiry))
         {
-            return false;
+            return true;
         }
 
         try
@@ -458,7 +458,7 @@ public sealed class ProviderPublicationSessionService : IProviderPublicationSess
             TimeSpan parsedTimeToLive = XmlConvert.ToTimeSpan(expiry);
             if (parsedTimeToLive <= TimeSpan.Zero)
             {
-                return false;
+                return true;
             }
 
             timeToLive = parsedTimeToLive;

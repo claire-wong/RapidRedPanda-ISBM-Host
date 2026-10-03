@@ -32,7 +32,7 @@ public sealed class ConfigurationDiscoveryController : ControllerBase
                 Array.Empty<object>(),
                 new[] { new AuthenticationSchemeResponse("Basic", "https://www.rfc-editor.org/rfc/rfc7617") }),
             _options.SecurityLevelConformance,
-            false,
+            true,
             true,
             false,
             false,
