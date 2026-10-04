@@ -105,6 +105,34 @@ public sealed class SqlConsumerRequestRepositoryTests
     }
 
     [Fact]
+    public async Task TryMarkRequestOutstandingSource_DisposesClaimReaderBeforeCommittingTransaction()
+    {
+        string source = await ReadHostFileAsync("Data", "SqlConsumerRequestRepository.cs");
+        string method = ExtractMethodSource(source, "public async Task<ReadConsumerRequestResult> TryMarkRequestOutstandingAsync");
+        string normalized = method.Replace("\r\n", "\n", StringComparison.Ordinal);
+
+        int readerStart = normalized.IndexOf(
+            "await using (SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken))",
+            StringComparison.Ordinal);
+        int materialize = normalized.IndexOf(
+            "claimed = await ReadRequestDataAsync(reader, cancellationToken);",
+            StringComparison.Ordinal);
+        int commit = normalized.IndexOf(
+            "await transaction.CommitAsync(cancellationToken);",
+            materialize,
+            StringComparison.Ordinal);
+        int readerScopeEnd = normalized.IndexOf(
+            "\n                }\n\n                await transaction.CommitAsync(cancellationToken);",
+            materialize,
+            StringComparison.Ordinal);
+
+        Assert.True(readerStart >= 0, "The durable request claim should scope the SqlDataReader explicitly.");
+        Assert.True(materialize > readerStart, "The durable request claim should materialize the selected request while the reader is open.");
+        Assert.True(commit > materialize, "The durable request claim should commit only after materializing the selected request.");
+        Assert.True(readerScopeEnd > materialize, "The claim reader scope should end before the transaction commit.");
+    }
+
+    [Fact]
     public async Task RequestNotificationSource_InsertsRequestShapedPendingRowsAndTopicSnapshots()
     {
         string source = await ReadHostFileAsync("Data", "SqlConsumerRequestRepository.cs");
@@ -150,6 +178,34 @@ public sealed class SqlConsumerRequestRepositoryTests
         Assert.Contains("PublicationNotificationSuppressionReasons.RequestExpired", source, StringComparison.Ordinal);
         Assert.Contains("await transaction.CommitAsync", source, StringComparison.Ordinal);
         Assert.Contains("await RollbackQuietlyAsync(transaction", source, StringComparison.Ordinal);
+    }
+
+    private static string ExtractMethodSource(string source, string methodSignature)
+    {
+        int methodStart = source.IndexOf(methodSignature, StringComparison.Ordinal);
+        Assert.True(methodStart >= 0, $"Could not find method signature '{methodSignature}'.");
+
+        int bodyStart = source.IndexOf('{', methodStart);
+        Assert.True(bodyStart >= 0, $"Could not find method body for '{methodSignature}'.");
+
+        int depth = 0;
+        for (int index = bodyStart; index < source.Length; index++)
+        {
+            if (source[index] == '{')
+            {
+                depth++;
+            }
+            else if (source[index] == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return source[methodStart..(index + 1)];
+                }
+            }
+        }
+
+        throw new InvalidOperationException($"Could not extract method body for '{methodSignature}'.");
     }
 
     private static async Task<string> ReadHostFileAsync(params string[] pathSegments)

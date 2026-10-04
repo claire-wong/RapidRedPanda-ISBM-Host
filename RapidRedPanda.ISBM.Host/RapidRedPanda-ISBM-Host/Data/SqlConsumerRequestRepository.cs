@@ -413,8 +413,11 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
                 command.Parameters.Add("@RemovedState", SqlDbType.NVarChar, 32).Value = ConsumerRequestRecipientStates.Removed;
                 AddTopicParameters(command, providerTopics);
 
-                await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
-                ConsumerRequestData? claimed = await ReadRequestDataAsync(reader, cancellationToken);
+                ConsumerRequestData? claimed;
+                await using (SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken))
+                {
+                    claimed = await ReadRequestDataAsync(reader, cancellationToken);
+                }
 
                 await transaction.CommitAsync(cancellationToken);
                 return claimed is null
