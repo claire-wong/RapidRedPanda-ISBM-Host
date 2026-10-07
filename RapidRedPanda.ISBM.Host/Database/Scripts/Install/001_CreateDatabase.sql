@@ -1,24 +1,56 @@
 /*
     RapidRedPanda ISBM Host
-    Phase-one schema installation for a new empty database.
+    Authoritative fresh-install database creation script.
 
-    Creates:
-    - dbo.SchemaVersions
-    - dbo.Channels
-    - dbo.ChannelSecurityTokens
-    - publication and request session, message, recipient, response, and notification tables
+    Before executing in SSMS or Azure Data Studio:
+    1. Review the target SQL Server instance.
+    2. Set @DatabaseName if the default is not desired.
+    3. Execute this script normally. SQLCMD Mode is not required.
 
-    Selected ChannelUri collation:
-    Latin1_General_100_CS_AS_SC
-
-    Field lengths:
-    - ChannelUri nvarchar(512): safe for a unique nonclustered index key on SQL
-      Server versions with a 1700-byte nonclustered key limit.
-    - Description nvarchar(2000)
-    - Username/NormalizedUsername nvarchar(256)
-    - PasswordHash nvarchar(512)
+    This script creates the database if needed, switches to it, and installs
+    the complete current schema through NotificationCleanupIndexes-001.
+    It does not specify physical file paths; SQL Server uses its configured
+    default data and log locations.
 */
 
+set nocount on;
+
+-- Change this value before running if a different database name is required.
+declare @DatabaseName sysname = N'RapidRedPandaISBM';
+
+if @DatabaseName is null or len(ltrim(rtrim(@DatabaseName))) = 0
+begin
+    throw 51000, 'DatabaseName must be provided.', 1;
+end;
+
+if db_id(@DatabaseName) is null
+begin
+    declare @CreateSql nvarchar(max) = N'create database ' + quotename(@DatabaseName) + N';';
+    exec sys.sp_executesql @CreateSql;
+    print 'Database created.';
+end
+else
+begin
+    declare @StateDesc nvarchar(60);
+    declare @UserAccessDesc nvarchar(60);
+    declare @IsReadOnly bit;
+
+    select
+        @StateDesc = state_desc,
+        @UserAccessDesc = user_access_desc,
+        @IsReadOnly = is_read_only
+    from sys.databases
+    where name = @DatabaseName;
+
+    if @StateDesc <> N'ONLINE' or @UserAccessDesc <> N'MULTI_USER' or @IsReadOnly = 1
+    begin
+        throw 51001, 'A database with the requested name exists, but it is not an online, multi-user, writable database.', 1;
+    end;
+
+    print 'Database already exists and appears compatible for schema installation.';
+end;
+
+declare @InstallSchemaSql nvarchar(max) = N'use ' + quotename(@DatabaseName) + N';
 set nocount on;
 set xact_abort on;
 set quoted_identifier on;
@@ -26,19 +58,19 @@ set quoted_identifier on;
 begin try
     begin transaction;
 
-    if object_id(N'dbo.SchemaVersions', N'U') is not null
+    if object_id(N''dbo.SchemaVersions'', N''U'') is not null
     begin
         if not exists
         (
             select 1
             from sys.columns
-            where object_id = object_id(N'dbo.SchemaVersions', N'U')
-              and name in (N'SchemaVersionId', N'VersionNumber', N'Description', N'AppliedUtc', N'ScriptName')
+            where object_id = object_id(N''dbo.SchemaVersions'', N''U'')
+              and name in (N''SchemaVersionId'', N''VersionNumber'', N''Description'', N''AppliedUtc'', N''ScriptName'')
             group by object_id
             having count(*) = 5
         )
         begin
-            throw 51000, 'dbo.SchemaVersions exists but is not compatible with the expected schema.', 1;
+            throw 51000, ''dbo.SchemaVersions exists but is not compatible with the expected schema.'', 1;
         end;
     end
     else
@@ -60,21 +92,21 @@ begin try
         );
     end;
 
-    if exists (select 1 from dbo.SchemaVersions where VersionNumber = N'PhaseOne-ChannelPersistence')
+    if exists (select 1 from dbo.SchemaVersions where VersionNumber = N''PhaseOne-ChannelPersistence'')
     begin
-        print 'PhaseOne-ChannelPersistence already recorded. No schema changes were made.';
+        print ''PhaseOne-ChannelPersistence already recorded. No schema changes were made.'';
         commit transaction;
         return;
     end;
 
-    if object_id(N'dbo.Channels', N'U') is not null
+    if object_id(N''dbo.Channels'', N''U'') is not null
     begin
-        throw 51001, 'dbo.Channels already exists. Refusing to silently accept or alter an existing object.', 1;
+        throw 51001, ''dbo.Channels already exists. Refusing to silently accept or alter an existing object.'', 1;
     end;
 
-    if object_id(N'dbo.ChannelSecurityTokens', N'U') is not null
+    if object_id(N''dbo.ChannelSecurityTokens'', N''U'') is not null
     begin
-        throw 51002, 'dbo.ChannelSecurityTokens already exists. Refusing to silently accept or alter an existing object.', 1;
+        throw 51002, ''dbo.ChannelSecurityTokens already exists. Refusing to silently accept or alter an existing object.'', 1;
     end;
 
     create table dbo.Channels
@@ -97,7 +129,7 @@ begin try
             primary key clustered (ChannelId),
 
         constraint CK_Channels_ChannelType
-            check (ChannelType in (N'Publication', N'Request')),
+            check (ChannelType in (N''Publication'', N''Request'')),
 
         constraint CK_Channels_DeleteAfterCreate
             check (DeletedUtc is null or DeletedUtc >= CreatedUtc)
@@ -138,7 +170,7 @@ begin try
             references dbo.Channels (ChannelId),
 
         constraint CK_ChannelSecurityTokens_TokenType
-            check (TokenType in (N'UsernameToken')),
+            check (TokenType in (N''UsernameToken'')),
 
         constraint CK_ChannelSecurityTokens_DeleteAfterCreate
             check (DeletedUtc is null or DeletedUtc >= CreatedUtc)
@@ -176,10 +208,10 @@ begin try
             references dbo.Channels (ChannelId),
 
         constraint CK_ConsumerSubscriptionSessions_SessionType
-            check (SessionType in (N'ConsumerPublicationSubscription')),
+            check (SessionType in (N''ConsumerPublicationSubscription'')),
 
         constraint CK_ConsumerSubscriptionSessions_SessionState
-            check (SessionState in (N'Open', N'Closed')),
+            check (SessionState in (N''Open'', N''Closed'')),
 
         constraint CK_ConsumerSubscriptionSessions_ClosedAfterOpened
             check (ClosedUtc is null or ClosedUtc >= OpenedUtc),
@@ -191,7 +223,22 @@ begin try
     create index IX_ConsumerSubscriptionSessions_ChannelId_Open
     on dbo.ConsumerSubscriptionSessions (ChannelId, SessionState)
     include (AzureTopicName, AzureSubscriptionName)
-    where SessionState = N'Open';
+    where SessionState = N''Open'';
+
+    create index IX_ConsumerSubscriptionSessions_ChannelId
+    on dbo.ConsumerSubscriptionSessions (ChannelId)
+    include
+    (
+        SessionId,
+        SessionType,
+        SessionState,
+        AzureTopicName,
+        AzureSubscriptionName,
+        AuthenticatedTokenUsername,
+        OpenedUtc,
+        ClosedUtc,
+        ListenerUrl
+    );
 
     create unique index UQ_ConsumerSubscriptionSessions_AzureSubscription
     on dbo.ConsumerSubscriptionSessions (AzureTopicName, AzureSubscriptionName);
@@ -251,7 +298,7 @@ begin try
             references dbo.Channels (ChannelId),
 
         constraint CK_ProviderRequestSessions_SessionState
-            check (SessionState in (N'Open', N'Closed')),
+            check (SessionState in (N''Open'', N''Closed'')),
 
         constraint CK_ProviderRequestSessions_ClosedAfterOpened
             check (ClosedUtc is null or ClosedUtc >= OpenedUtc),
@@ -263,7 +310,7 @@ begin try
     create index IX_ProviderRequestSessions_ChannelId_Open
     on dbo.ProviderRequestSessions (ChannelId, SessionState, OpenedUtc)
     include (ListenerUrl)
-    where SessionState = N'Open';
+    where SessionState = N''Open'';
 
     create unique index UQ_ProviderRequestSessions_AzureSubscription
     on dbo.ProviderRequestSessions (AzureTopicName, AzureSubscriptionName);
@@ -320,7 +367,7 @@ begin try
             references dbo.Channels (ChannelId),
 
         constraint CK_ConsumerRequestSessions_SessionState
-            check (SessionState in (N'Open', N'Closed')),
+            check (SessionState in (N''Open'', N''Closed'')),
 
         constraint CK_ConsumerRequestSessions_ClosedAfterCreated
             check (ClosedUtc is null or ClosedUtc >= CreatedUtc)
@@ -334,6 +381,11 @@ begin try
         CreatedUtc datetime2(7) not null,
         ExpiredUtc datetime2(7) null,
         EffectiveExpiryUtc datetime2(7) null,
+        MessageContent nvarchar(max) null,
+        MediaType nvarchar(256) null,
+        Payload varbinary(max) null,
+        PayloadKind nvarchar(16) null,
+        ContentEncoding nvarchar(64) null,
         RowVersion rowversion not null,
 
         constraint PK_ConsumerRequests
@@ -345,7 +397,44 @@ begin try
 
         constraint FK_ConsumerRequests_Channels
             foreign key (ChannelId)
-            references dbo.Channels (ChannelId)
+            references dbo.Channels (ChannelId),
+
+        constraint CK_ConsumerRequests_MessageContentPayloadKind
+            check (PayloadKind is null or PayloadKind in (N''Json'', N''String'', N''Binary'')),
+
+        constraint CK_ConsumerRequests_MessageContentPayloadShape
+            check
+            (
+                (
+                    MessageContent is null
+                    and Payload is null
+                    and PayloadKind is null
+                    and ContentEncoding is null
+                )
+                or
+                (
+                    MessageContent is not null
+                    and Payload is not null
+                    and PayloadKind = N''Json''
+                    and MediaType is null
+                    and ContentEncoding is null
+                )
+                or
+                (
+                    MessageContent is not null
+                    and Payload is not null
+                    and PayloadKind = N''String''
+                    and MediaType is not null
+                    and ContentEncoding is null
+                )
+                or
+                (
+                    MessageContent is not null
+                    and Payload is not null
+                    and PayloadKind = N''Binary''
+                    and ContentEncoding is not null
+                )
+            )
     );
 
     create index IX_ConsumerRequests_Session_Message
@@ -369,6 +458,45 @@ begin try
     create unique index UQ_ConsumerRequestTopics_Message_TopicValue
     on dbo.ConsumerRequestTopics (MessageId, TopicValue);
 
+    create table dbo.ConsumerRequestRecipients
+    (
+        RequestMessageId uniqueidentifier not null,
+        ProviderRequestSessionId uniqueidentifier not null,
+        State nvarchar(32) not null,
+        TopicValue nvarchar(512) not null,
+        ReadUtc datetime2(7) null,
+        ResolvedUtc datetime2(7) null,
+        CreatedUtc datetime2(7) not null
+            constraint DF_ConsumerRequestRecipients_CreatedUtc default sysutcdatetime(),
+        RowVersion rowversion not null,
+
+        constraint PK_ConsumerRequestRecipients
+            primary key clustered (RequestMessageId, ProviderRequestSessionId),
+
+        constraint FK_ConsumerRequestRecipients_Requests
+            foreign key (RequestMessageId)
+            references dbo.ConsumerRequests (MessageId),
+
+        constraint FK_ConsumerRequestRecipients_ProviderRequestSessions
+            foreign key (ProviderRequestSessionId)
+            references dbo.ProviderRequestSessions (SessionId),
+
+        constraint CK_ConsumerRequestRecipients_State
+            check (State in (N''Outstanding'', N''Removed''))
+    );
+
+    create unique index UQ_ConsumerRequestRecipients_Provider_Outstanding
+    on dbo.ConsumerRequestRecipients (ProviderRequestSessionId)
+    include (RequestMessageId, TopicValue, ReadUtc)
+    where State = N''Outstanding'';
+
+    create index IX_ConsumerRequestRecipients_Request_State_Provider
+    on dbo.ConsumerRequestRecipients (RequestMessageId, State, ProviderRequestSessionId);
+
+    create index IX_ConsumerRequestRecipients_Provider_State
+    on dbo.ConsumerRequestRecipients (ProviderRequestSessionId, State, ResolvedUtc)
+    include (RequestMessageId, TopicValue);
+
     create table dbo.ProviderPublicationSessions
     (
         SessionId uniqueidentifier not null,
@@ -388,7 +516,7 @@ begin try
             references dbo.Channels (ChannelId),
 
         constraint CK_ProviderPublicationSessions_SessionState
-            check (SessionState in (N'Open', N'Closed')),
+            check (SessionState in (N''Open'', N''Closed'')),
 
         constraint CK_ProviderPublicationSessions_ClosedAfterCreated
             check (ClosedUtc is null or ClosedUtc >= CreatedUtc)
@@ -397,7 +525,7 @@ begin try
     create index IX_ProviderPublicationSessions_ChannelId_Open
     on dbo.ProviderPublicationSessions (ChannelId, SessionState)
     include (CreatedUtc)
-    where SessionState = N'Open';
+    where SessionState = N''Open'';
 
     create table dbo.ProviderPublications
     (
@@ -407,6 +535,11 @@ begin try
         PublishedUtc datetime2(7) not null,
         ExpiredUtc datetime2(7) null,
         EffectiveExpiryUtc datetime2(7) null,
+        MessageContent nvarchar(max) null,
+        MediaType nvarchar(256) null,
+        Payload varbinary(max) null,
+        PayloadKind nvarchar(16) null,
+        ContentEncoding nvarchar(64) null,
         CreatedUtc datetime2(7) not null
             constraint DF_ProviderPublications_CreatedUtc default sysutcdatetime(),
 
@@ -419,7 +552,45 @@ begin try
 
         constraint FK_ProviderPublications_Channels
             foreign key (ChannelId)
-            references dbo.Channels (ChannelId)
+            references dbo.Channels (ChannelId),
+
+        constraint CK_ProviderPublications_MessageContentPayloadKind
+            check (PayloadKind is null or PayloadKind in (N''Json'', N''String'', N''Binary'')),
+
+        constraint CK_ProviderPublications_MessageContentPayloadShape
+            check
+            (
+                (
+                    MessageContent is null
+                    and MediaType is null
+                    and Payload is null
+                    and PayloadKind is null
+                    and ContentEncoding is null
+                )
+                or
+                (
+                    MessageContent is not null
+                    and Payload is not null
+                    and PayloadKind = N''Json''
+                    and MediaType is null
+                    and ContentEncoding is null
+                )
+                or
+                (
+                    MessageContent is not null
+                    and Payload is not null
+                    and PayloadKind = N''String''
+                    and MediaType is not null
+                    and ContentEncoding is null
+                )
+                or
+                (
+                    MessageContent is not null
+                    and Payload is not null
+                    and PayloadKind = N''Binary''
+                    and ContentEncoding is not null
+                )
+            )
     );
 
     create index IX_ProviderPublications_ChannelId_MessageId
@@ -470,20 +641,25 @@ begin try
             references dbo.ConsumerSubscriptionSessions (SessionId),
 
         constraint CK_ProviderPublicationRecipients_State
-            check (State in (N'Pending', N'Outstanding', N'SkippedExpired', N'Removed', N'SubscriptionDeleted'))
+            check (State in (N''Pending'', N''Outstanding'', N''SkippedExpired'', N''Removed'', N''SubscriptionDeleted''))
     );
 
     create index IX_ProviderPublicationRecipients_Unresolved
     on dbo.ProviderPublicationRecipients (MessageId, State, ConsumerSessionId)
     include (AzureTopicName, AzureSubscriptionName)
-    where State in (N'Pending', N'Outstanding');
+    where State in (N''Pending'', N''Outstanding'');
+
+    create index IX_ProviderPublicationRecipients_Consumer_Outstanding
+    on dbo.ProviderPublicationRecipients (ConsumerSessionId, CreatedUtc, MessageId)
+    include (AzureTopicName, AzureSubscriptionName, ResolvedUtc)
+    where State = N''Outstanding'';
 
     create table dbo.Notifications
     (
         NotificationId uniqueidentifier not null
             constraint DF_Notifications_Id default newid(),
         NotificationServiceType nvarchar(32) not null
-            constraint DF_Notifications_ServiceType default N'Publication',
+            constraint DF_Notifications_ServiceType default N''Publication'',
         MessageId uniqueidentifier not null,
         RequestMessageId uniqueidentifier null,
         ConsumerSubscriptionSessionId uniqueidentifier null,
@@ -531,13 +707,13 @@ begin try
             references dbo.ConsumerRequests (MessageId),
 
         constraint CK_Notifications_ServiceType
-            check (NotificationServiceType in (N'Publication', N'Request', N'Response')),
+            check (NotificationServiceType in (N''Publication'', N''Request'', N''Response'')),
 
         constraint CK_Notifications_RecipientShape
             check
             (
                 (
-                    NotificationServiceType = N'Publication'
+                    NotificationServiceType = N''Publication''
                     and ConsumerSubscriptionSessionId is not null
                     and ProviderRequestSessionId is null
                     and ConsumerRequestSessionId is null
@@ -545,7 +721,7 @@ begin try
                 )
                 or
                 (
-                    NotificationServiceType = N'Request'
+                    NotificationServiceType = N''Request''
                     and ConsumerSubscriptionSessionId is null
                     and ProviderRequestSessionId is not null
                     and ConsumerRequestSessionId is null
@@ -553,7 +729,7 @@ begin try
                 )
                 or
                 (
-                    NotificationServiceType = N'Response'
+                    NotificationServiceType = N''Response''
                     and ConsumerSubscriptionSessionId is null
                     and ProviderRequestSessionId is null
                     and ConsumerRequestSessionId is not null
@@ -562,7 +738,7 @@ begin try
             ),
 
         constraint CK_Notifications_State
-            check (State in (N'Pending', N'Sending', N'Delivered', N'RetryScheduled', N'Failed', N'Suppressed', N'Expired')),
+            check (State in (N''Pending'', N''Sending'', N''Delivered'', N''RetryScheduled'', N''Failed'', N''Suppressed'', N''Expired'')),
 
         constraint CK_Notifications_AttemptCount
             check (AttemptCount >= 0)
@@ -570,25 +746,40 @@ begin try
 
     create unique index UQ_Notifications_Message_ConsumerSubscriptionSession_Publication
     on dbo.Notifications (MessageId, ConsumerSubscriptionSessionId)
-    where NotificationServiceType = N'Publication';
+    where NotificationServiceType = N''Publication'';
 
     create unique index UQ_Notifications_Message_ProviderRequestSession_Request
     on dbo.Notifications (MessageId, ProviderRequestSessionId)
-    where NotificationServiceType = N'Request';
+    where NotificationServiceType = N''Request'';
 
     create unique index UQ_Notifications_Message_ConsumerRequestSession_Response
     on dbo.Notifications (MessageId, ConsumerRequestSessionId)
-    where NotificationServiceType = N'Response';
+    where NotificationServiceType = N''Response'';
 
     create index IX_Notifications_Pending
     on dbo.Notifications (NotificationServiceType, State, NextAttemptUtc, LockedUntilUtc, DeliveryDeadlineUtc, CreatedUtc, NotificationId)
     include (MessageId, RequestMessageId, ConsumerSubscriptionSessionId, ProviderRequestSessionId, ConsumerRequestSessionId, ListenerUrl, AttemptCount, LockOwner)
-    where State in (N'Pending', N'RetryScheduled', N'Sending');
+    where State in (N''Pending'', N''RetryScheduled'', N''Sending'');
 
     create index IX_Notifications_ProviderRequestSession_State
     on dbo.Notifications (NotificationServiceType, ProviderRequestSessionId, State)
     include (MessageId, DeliveryDeadlineUtc)
-    where NotificationServiceType = N'Request';
+    where NotificationServiceType = N''Request'';
+
+    create index IX_Notifications_Response_ConsumerRequestSession_Pending
+    on dbo.Notifications (ConsumerRequestSessionId, State)
+    where NotificationServiceType = N''Response''
+      and State in (N''Pending'', N''RetryScheduled'');
+
+    create index IX_Notifications_Response_RequestMessage_Pending
+    on dbo.Notifications (RequestMessageId, State)
+    where NotificationServiceType = N''Response''
+      and State in (N''Pending'', N''RetryScheduled'');
+
+    create index IX_Notifications_Request_Message_Pending
+    on dbo.Notifications (MessageId, State)
+    where NotificationServiceType = N''Request''
+      and State in (N''Pending'', N''RetryScheduled'');
 
     create table dbo.NotificationTopics
     (
@@ -644,7 +835,7 @@ begin try
             references dbo.Channels (ChannelId),
 
         constraint CK_RequestResponses_MessageContentPayloadKind
-            check (PayloadKind is null or PayloadKind in (N'Json', N'String', N'Binary')),
+            check (PayloadKind is null or PayloadKind in (N''Json'', N''String'', N''Binary'')),
 
         constraint CK_RequestResponses_MessageContentPayloadShape
             check
@@ -657,21 +848,21 @@ begin try
                 or
                 (
                     Payload is not null
-                    and PayloadKind = N'Json'
+                    and PayloadKind = N''Json''
                     and MediaType is null
                     and ContentEncoding is null
                 )
                 or
                 (
                     Payload is not null
-                    and PayloadKind = N'String'
+                    and PayloadKind = N''String''
                     and MediaType is not null
                     and ContentEncoding is null
                 )
                 or
                 (
                     Payload is not null
-                    and PayloadKind = N'Binary'
+                    and PayloadKind = N''Binary''
                     and ContentEncoding is not null
                 )
             )
@@ -714,94 +905,109 @@ begin try
     insert dbo.SchemaVersions (VersionNumber, Description, ScriptName)
     values
     (
-        N'PhaseOne-ChannelPersistence',
-        N'Phase-one ISBM Channel and UsernameToken persistence schema.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''PhaseOne-ChannelPersistence'',
+        N''Phase-one ISBM Channel and UsernameToken persistence schema.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'ChannelAzureTopicBinding-001',
-        N'Stable Azure Service Bus topic names stored on channels.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''ChannelAzureTopicBinding-001'',
+        N''Stable Azure Service Bus topic names stored on channels.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'ConsumerSubscriptionSessions-001',
-        N'Consumer publication subscription-session persistence for Azure Service Bus subscriptions.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''ConsumerSubscriptionSessions-001'',
+        N''Consumer publication subscription-session persistence for Azure Service Bus subscriptions.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'ConsumerSubscriptionSessionTopics-001',
-        N'Persisted ISBM topic selections for consumer publication subscription sessions.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''ConsumerSubscriptionSessionTopics-001'',
+        N''Persisted ISBM topic selections for consumer publication subscription sessions.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'ProviderPublicationSessions-001',
-        N'Provider publication-session persistence.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''ProviderPublicationSessions-001'',
+        N''Provider publication-session persistence.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'ProviderPublicationExpiration-001',
-        N'Adds provider publication metadata, logical expiration, and per-consumer recipient state.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''ProviderPublicationExpiration-001'',
+        N''Adds provider publication metadata, logical expiration, and per-consumer recipient state.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'ConsumerPublicationListenerUrl-001',
-        N'Optional listener URL for consumer publication subscription sessions.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''ConsumerPublicationListenerUrl-001'',
+        N''Optional listener URL for consumer publication subscription sessions.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'RequestServices-001',
-        N'Adds provider and consumer request-service sessions and request expiration ownership metadata.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''RequestServices-001'',
+        N''Adds provider and consumer request-service sessions and request expiration ownership metadata.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'RequestResponses-001',
-        N'Adds request-response messages and outstanding response-read persistence.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''RequestResponses-001'',
+        N''Adds request-response messages and outstanding response-read persistence.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'RequestResponseMessageContentPayload-001',
-        N'Adds media-neutral MessageContent payload fields for request-response persistence.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''RequestResponseMessageContentPayload-001'',
+        N''Adds media-neutral MessageContent payload fields for request-response persistence.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'PublicationNotifications-001',
-        N'Durable pending publication notification work for listener-enabled consumer publication sessions.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''PublicationNotifications-001'',
+        N''Durable pending publication notification work for listener-enabled consumer publication sessions.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'PublicationNotificationDispatch-001',
-        N'Dispatch lease, retry, and terminal result fields for publication notifications.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''PublicationNotificationDispatch-001'',
+        N''Dispatch lease, retry, and terminal result fields for publication notifications.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'PublicationNotifications-002',
-        N'Delivery deadline and expired terminal state for publication notifications.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''PublicationNotifications-002'',
+        N''Delivery deadline and expired terminal state for publication notifications.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'RequestNotifications-001',
-        N'Adds notification service type and request-recipient shape support for shared notification work.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''RequestNotifications-001'',
+        N''Adds notification service type and request-recipient shape support for shared notification work.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'SessionNotificationModel-001',
-        N'Refactors provider request sessions into dedicated tables and generalizes notification table names.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''SessionNotificationModel-001'',
+        N''Refactors provider request sessions into dedicated tables and generalizes notification table names.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'ResponseNotifications-001',
-        N'Adds response notification schema shape and request-message correlation.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''ResponseNotifications-001'',
+        N''Adds response notification schema shape and request-message correlation.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'SessionFilterExpressions-001',
-        N'Adds nullable JSON storage for accepted session filterExpressions.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''SessionFilterExpressions-001'',
+        N''Adds nullable JSON storage for accepted session filterExpressions.'',
+        N''001_CreateDatabase.sql''
     ),
     (
-        N'TopicValueSemantics-001',
-        N'Aligns topic equality with binary code-point semantics and prevents duplicate consumer request topics.',
-        N'002_CreatePhaseOneSchema.sql'
+        N''TopicValueSemantics-001'',
+        N''Aligns topic equality with binary code-point semantics and prevents duplicate consumer request topics.'',
+        N''001_CreateDatabase.sql''
+    ),
+    (
+        N''RequestRecipientState-001'',
+        N''Adds durable request content and provider request recipient state.'',
+        N''001_CreateDatabase.sql''
+    ),
+    (
+        N''PublicationMessageContent-001'',
+        N''Adds durable publication message content for restart-safe publication lifecycle.'',
+        N''001_CreateDatabase.sql''
+    ),
+    (
+        N''NotificationCleanupIndexes-001'',
+        N''Adds targeted indexes for notification cleanup and subscription reconciliation queries.'',
+        N''001_CreateDatabase.sql''
     );
 
     commit transaction;
@@ -814,4 +1020,9 @@ begin catch
 
     throw;
 end catch;
+
+';
+
+exec sys.sp_executesql @InstallSchemaSql;
+print 'RapidRedPanda ISBM Host schema is installed.';
 go

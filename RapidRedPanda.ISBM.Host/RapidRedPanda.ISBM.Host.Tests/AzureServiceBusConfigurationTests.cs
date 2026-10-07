@@ -111,11 +111,12 @@ public sealed class AzureServiceBusConfigurationTests
     }
 
     [Fact]
-    public async Task HostProject_CopiesSqlMigrationsToBuildAndPublishOutput()
+    public async Task HostProject_CopiesInstallAndMaintenanceSqlToBuildAndPublishOutput()
     {
         string project = await ReadHostFileAsync("RapidRedPanda.ISBM.Host.csproj");
 
-        Assert.Contains("..\\Database\\Scripts\\**\\*.sql", project, StringComparison.Ordinal);
+        Assert.Contains("..\\Database\\Scripts\\Install\\*.sql", project, StringComparison.Ordinal);
+        Assert.Contains("..\\Database\\Scripts\\Maintenance\\*.sql", project, StringComparison.Ordinal);
         Assert.Contains("CopyToOutputDirectory=\"PreserveNewest\"", project, StringComparison.Ordinal);
         Assert.Contains("CopyToPublishDirectory=\"PreserveNewest\"", project, StringComparison.Ordinal);
     }
