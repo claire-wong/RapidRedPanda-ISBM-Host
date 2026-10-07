@@ -181,7 +181,7 @@ public sealed class ProviderPublicationExpirationTests
         Assert.Contains("inner join dbo.ConsumerSubscriptionSessions session", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("session.ListenerUrl is not null", source, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("NotificationTopics", source, StringComparison.Ordinal);
-        Assert.Contains("UQ_PublicationNotifications_Message_ConsumerSession", await ReadMigrationAsync("010_AddPublicationNotifications.sql"), StringComparison.Ordinal);
+        Assert.Contains("UQ_Notifications_Message_ConsumerSubscriptionSession_Publication", await ReadInstallScriptAsync(), StringComparison.Ordinal);
         Assert.DoesNotContain("ReceiveMessageAsync", source, StringComparison.Ordinal);
         Assert.DoesNotContain("CompleteMessageAsync", source, StringComparison.Ordinal);
         Assert.DoesNotContain("HttpClient", source, StringComparison.Ordinal);
@@ -374,9 +374,9 @@ public sealed class ProviderPublicationExpirationTests
         return controller;
     }
 
-    private static async Task<string> ReadMigrationAsync(string fileName)
+    private static async Task<string> ReadInstallScriptAsync()
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "Scripts", "Migrations", fileName);
+        string path = Path.Combine(AppContext.BaseDirectory, "Scripts", "Install", "001_CreateDatabase.sql");
         return await File.ReadAllTextAsync(path);
     }
 

@@ -19,7 +19,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\Database\Scripts\**\*.sql" Link="Database\Scripts\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\Database\Scripts\Install\*.sql" Link="Database\Scripts\Install\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\Database\Scripts\Maintenance\*.sql" Link="Database\Scripts\Maintenance\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

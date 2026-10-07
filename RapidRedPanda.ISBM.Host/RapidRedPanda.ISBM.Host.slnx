@@ -1,0 +1,10 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/RapidRedPanda-ISBM-Host/" />
+  <Project Path="RapidRedPanda-ISBM-Host/RapidRedPanda.ISBM.Host.csproj" />
+  <Project Path="RapidRedPanda.ISBM.Host.Tests/RapidRedPanda.ISBM.Host.Tests.csproj" />
+</Solution>
