@@ -107,6 +107,18 @@ public sealed class AzureServiceBusSubscriptionTransport : ISubscriptionTranspor
         }
     }
 
+    public async Task<IReadOnlyList<string>> GetSubscriptionNamesAsync(string topicName, CancellationToken cancellationToken)
+    {
+        List<string> subscriptionNames = [];
+
+        await foreach (SubscriptionProperties subscription in _administrationClient.GetSubscriptionsAsync(topicName, cancellationToken))
+        {
+            subscriptionNames.Add(subscription.SubscriptionName);
+        }
+
+        return subscriptionNames;
+    }
+
     public async Task<TransportPublication?> ReadPublicationAsync(
         Guid sessionId,
         string topicName,

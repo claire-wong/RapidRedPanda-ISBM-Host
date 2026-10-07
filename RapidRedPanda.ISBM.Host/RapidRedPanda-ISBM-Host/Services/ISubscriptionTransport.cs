@@ -17,6 +17,13 @@ public interface ISubscriptionTransport
         string subscriptionName,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<string>> GetSubscriptionNamesAsync(
+        string topicName,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult<IReadOnlyList<string>>([]);
+    }
+
     Task<TransportPublication?> ReadPublicationAsync(
         Guid sessionId,
         string topicName,

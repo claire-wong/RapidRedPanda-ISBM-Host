@@ -278,6 +278,27 @@ public sealed class ConsumerSubscriptionSessionServiceTests
     }
 
     [Fact]
+    public async Task OpenSubscriptionSession_ReconcilesExistingChannelSubscriptionsBeforeCreatingNewSubscription()
+    {
+        Guid channelId = Guid.NewGuid();
+        FakeSubscriptionTransport subscriptionTransport = new();
+        FakeReconciliationService reconciliationService = new();
+
+        OpenSubscriptionSessionResult result = await CreateService(
+                ValidChannelRepository(channelId),
+                new FakeSessionRepository(),
+                subscriptionTransport,
+                reconciliationService: reconciliationService)
+            .OpenSubscriptionSessionAsync(EncodedChannelUri, ["Topic-A", "Topic-B"], null, null, null, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        ChannelSubscriptionData reconciledChannel = Assert.Single(reconciliationService.ReconciledChannels);
+        Assert.Equal(channelId, reconciledChannel.ChannelId);
+        Assert.Equal(ChannelTransportNames.TopicNameForChannel(channelId), reconciledChannel.AzureTopicName);
+        Assert.Single(subscriptionTransport.CreatedSubscriptions);
+    }
+
+    [Fact]
     public async Task OpenSubscriptionSession_AzureCreationFailure_DoesNotInsertSqlSession()
     {
         Guid channelId = Guid.NewGuid();
@@ -698,7 +719,8 @@ public sealed class ConsumerSubscriptionSessionServiceTests
         FakeSessionRepository? sessionRepository = null,
         FakeSubscriptionTransport? transport = null,
         FakeChannelTopicTransport? topicTransport = null,
-        FakeProviderPublicationRepository? publicationRepository = null)
+        FakeProviderPublicationRepository? publicationRepository = null,
+        IChannelSubscriptionReconciliationService? reconciliationService = null)
     {
         return new ConsumerSubscriptionSessionService(
             channelRepository ?? new FakeChannelRepository(),
@@ -706,6 +728,7 @@ public sealed class ConsumerSubscriptionSessionServiceTests
             publicationRepository ?? new FakeProviderPublicationRepository(),
             transport ?? new FakeSubscriptionTransport(),
             topicTransport ?? new FakeChannelTopicTransport(),
+            reconciliationService ?? new NoOpChannelSubscriptionReconciliationService(),
             NullLogger<ConsumerSubscriptionSessionService>.Instance);
     }
 
@@ -1004,6 +1027,19 @@ public sealed class ConsumerSubscriptionSessionServiceTests
         public Task DeleteTopicAsync(string topicName, CancellationToken cancellationToken)
         {
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeReconciliationService : IChannelSubscriptionReconciliationService
+    {
+        public List<ChannelSubscriptionData> ReconciledChannels { get; } = [];
+
+        public Task<ChannelSubscriptionReconciliationResult> ReconcileChannelSubscriptionsAsync(
+            ChannelSubscriptionData channel,
+            CancellationToken cancellationToken)
+        {
+            ReconciledChannels.Add(channel);
+            return Task.FromResult(ChannelSubscriptionReconciliationResult.Empty());
         }
     }
 }

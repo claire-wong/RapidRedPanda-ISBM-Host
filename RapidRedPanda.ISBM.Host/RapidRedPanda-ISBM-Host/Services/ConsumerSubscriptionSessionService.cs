@@ -138,6 +138,7 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
     private readonly IProviderPublicationRepository _publicationRepository;
     private readonly ISubscriptionTransport _subscriptionTransport;
     private readonly IChannelTopicTransport _topicTransport;
+    private readonly IChannelSubscriptionReconciliationService _reconciliationService;
     private readonly ILogger<ConsumerSubscriptionSessionService> _logger;
 
     public ConsumerSubscriptionSessionService(
@@ -146,6 +147,7 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
         IProviderPublicationRepository publicationRepository,
         ISubscriptionTransport subscriptionTransport,
         IChannelTopicTransport topicTransport,
+        IChannelSubscriptionReconciliationService reconciliationService,
         ILogger<ConsumerSubscriptionSessionService> logger)
     {
         _channelRepository = channelRepository;
@@ -153,7 +155,26 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
         _publicationRepository = publicationRepository;
         _subscriptionTransport = subscriptionTransport;
         _topicTransport = topicTransport;
+        _reconciliationService = reconciliationService;
         _logger = logger;
+    }
+
+    public ConsumerSubscriptionSessionService(
+        IChannelRepository channelRepository,
+        ISubscriptionSessionRepository sessionRepository,
+        IProviderPublicationRepository publicationRepository,
+        ISubscriptionTransport subscriptionTransport,
+        IChannelTopicTransport topicTransport,
+        ILogger<ConsumerSubscriptionSessionService> logger)
+        : this(
+            channelRepository,
+            sessionRepository,
+            publicationRepository,
+            subscriptionTransport,
+            topicTransport,
+            new NoOpChannelSubscriptionReconciliationService(),
+            logger)
+    {
     }
 
     public ConsumerSubscriptionSessionService(
@@ -168,6 +189,7 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
             new NullProviderPublicationRepository(),
             subscriptionTransport,
             topicTransport,
+            new NoOpChannelSubscriptionReconciliationService(),
             logger)
     {
     }
@@ -263,6 +285,8 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
             }
         }
 
+        await ReconcileChannelSubscriptionsAsync(channel, cancellationToken);
+
         Guid sessionId = Guid.NewGuid();
         string azureSubscriptionName = ChannelTransportNames.SubscriptionNameForSession(sessionId);
         bool azureSubscriptionCreated = false;
@@ -331,6 +355,43 @@ public sealed class ConsumerSubscriptionSessionService : IConsumerSubscriptionSe
         }
 
         return OpenSubscriptionSessionResult.Failure(OpenSubscriptionSessionFailureKind.OperationFault);
+    }
+
+    private async Task ReconcileChannelSubscriptionsAsync(
+        ChannelSubscriptionData channel,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            ChannelSubscriptionReconciliationResult reconciliationResult =
+                await _reconciliationService.ReconcileChannelSubscriptionsAsync(channel, cancellationToken);
+
+            if (reconciliationResult.InspectedSubscriptions > 0)
+            {
+                _logger.LogInformation(
+                    "Azure Service Bus subscription reconciliation completed for channel. ChannelId: {ChannelId}. AzureTopicName: {AzureTopicName}. Inspected: {Inspected}. PreservedOpen: {PreservedOpen}. PreservedNonGenerated: {PreservedNonGenerated}. DeletedOrphan: {DeletedOrphan}. DeletedClosed: {DeletedClosed}. DeleteFailures: {DeleteFailures}.",
+                    channel.ChannelId,
+                    channel.AzureTopicName,
+                    reconciliationResult.InspectedSubscriptions,
+                    reconciliationResult.PreservedOpenSubscriptions,
+                    reconciliationResult.PreservedNonGeneratedSubscriptions,
+                    reconciliationResult.DeletedOrphanSubscriptions,
+                    reconciliationResult.DeletedClosedSubscriptions,
+                    reconciliationResult.DeleteFailures);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(
+                exception,
+                "Azure Service Bus subscription reconciliation failed before opening subscription session. ChannelId: {ChannelId}. AzureTopicName: {AzureTopicName}.",
+                channel.ChannelId,
+                channel.AzureTopicName);
+        }
     }
 
     public async Task<CloseConsumerSubscriptionSessionResult> CloseSubscriptionSessionAsync(

@@ -20,6 +20,7 @@ builder.Services.AddScoped<IConsumerRequestSessionRepository, SqlConsumerRequest
 builder.Services.AddScoped<IConsumerRequestRepository, SqlConsumerRequestRepository>();
 builder.Services.AddScoped<IRequestResponseRepository, SqlRequestResponseRepository>();
 builder.Services.AddScoped<IChannelLifecycleService, ChannelLifecycleService>();
+builder.Services.AddScoped<IChannelSubscriptionReconciliationService, ChannelSubscriptionReconciliationService>();
 builder.Services.AddScoped<IConsumerSubscriptionSessionService, ConsumerSubscriptionSessionService>();
 builder.Services.AddScoped<IProviderPublicationSessionService, ProviderPublicationSessionService>();
 builder.Services.AddScoped<IProviderRequestSessionService, ProviderRequestSessionService>();
@@ -52,6 +53,12 @@ builder.Services.AddHttpClient(PublicationNotificationClient.HttpClientName, (se
     UseCookies = false
 });
 builder.Services.AddHostedService<PublicationNotificationDispatcher>();
+builder.Services
+    .AddOptions<ChannelTopicSynchronizationOptions>()
+    .Bind(builder.Configuration.GetSection(ChannelTopicSynchronizationOptions.SectionName))
+    .Validate(ChannelTopicSynchronizationOptions.IsValid, "Channel topic synchronization configuration is invalid. IntervalSeconds must be at least 30.")
+    .ValidateOnStart();
+builder.Services.AddHostedService<ChannelTopicSynchronizer>();
 builder.Services
     .AddOptions<AzureServiceBusOptions>()
     .Bind(builder.Configuration.GetSection(AzureServiceBusOptions.SectionName))

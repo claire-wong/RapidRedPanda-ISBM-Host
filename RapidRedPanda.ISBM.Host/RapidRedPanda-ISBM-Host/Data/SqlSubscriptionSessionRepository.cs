@@ -193,6 +193,51 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
         }
     }
 
+    public async Task<IReadOnlyList<ConsumerSubscriptionSessionData>> GetConsumerSubscriptionSessionsForChannelAsync(
+        Guid channelId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using SqlConnection connection = new(_connectionString);
+            await connection.OpenAsync(cancellationToken);
+
+            const string sql = """
+                select
+                    SessionId,
+                    ChannelId,
+                    SessionType,
+                    SessionState,
+                    AzureTopicName,
+                    AzureSubscriptionName,
+                    AuthenticatedTokenUsername,
+                    OpenedUtc,
+                    ClosedUtc,
+                    ListenerUrl,
+                    FilterExpressionsJson
+                from dbo.ConsumerSubscriptionSessions
+                where ChannelId = @ChannelId;
+                """;
+
+            await using SqlCommand command = new(sql, connection);
+            command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = channelId;
+
+            List<ConsumerSubscriptionSessionData> sessions = [];
+            await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                sessions.Add(ReadSubscriptionSession(reader));
+            }
+
+            return sessions;
+        }
+        catch (SqlException exception)
+        {
+            _logger.LogError(exception, "Database failure while retrieving subscription sessions for channel {ChannelId}.", channelId);
+            throw;
+        }
+    }
+
     public async Task<CloseSubscriptionSessionResult> CloseSubscriptionSessionAsync(Guid sessionId, CancellationToken cancellationToken)
     {
         try
@@ -239,6 +284,23 @@ public sealed class SqlSubscriptionSessionRepository : ISubscriptionSessionRepos
             _logger.LogError(exception, "Database failure while closing subscription session {SessionId}.", sessionId);
             return CloseSubscriptionSessionResult.Failure(CloseSubscriptionSessionFailureKind.DatabaseFailure, "Database failure while closing subscription session.");
         }
+    }
+
+    private static ConsumerSubscriptionSessionData ReadSubscriptionSession(SqlDataReader reader)
+    {
+        return new ConsumerSubscriptionSessionData(
+            reader.GetGuid(0),
+            reader.GetGuid(1),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            [],
+            reader.IsDBNull(6) ? null : reader.GetString(6),
+            reader.GetDateTime(7),
+            reader.IsDBNull(8) ? null : reader.GetDateTime(8),
+            reader.IsDBNull(9) ? null : reader.GetString(9),
+            reader.IsDBNull(10) ? null : reader.GetString(10));
     }
 
     private static async Task RollbackQuietlyAsync(SqlTransaction transaction, CancellationToken cancellationToken)

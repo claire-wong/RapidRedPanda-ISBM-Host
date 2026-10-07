@@ -10,6 +10,18 @@ public interface IChannelRepository
 
     Task<GetChannelTopicBindingResult> GetChannelTopicBindingByIdAsync(Guid channelId, CancellationToken cancellationToken);
 
+    async Task<IReadOnlyList<ChannelTopicBindingData>> GetActiveChannelTopicBindingsAsync(CancellationToken cancellationToken)
+    {
+        IReadOnlyList<ChannelData> channels = await GetChannelsAsync(null, cancellationToken);
+        return channels
+            .Select(channel => new ChannelTopicBindingData(
+                channel.ChannelId,
+                channel.ChannelUri,
+                channel.ChannelType,
+                channel.AzureTopicName))
+            .ToArray();
+    }
+
     Task<GetChannelForSubscriptionResult> GetChannelForConsumerPublicationSubscriptionAsync(
         string channelUri,
         ChannelCredentials? credentials,

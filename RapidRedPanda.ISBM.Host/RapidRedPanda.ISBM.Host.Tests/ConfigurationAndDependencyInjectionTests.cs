@@ -138,6 +138,21 @@ public sealed class ConfigurationAndDependencyInjectionTests
     }
 
     [Fact]
+    public async Task ProgramRegistersChannelTopicSynchronizerDependencies()
+    {
+        string program = await ReadHostFileAsync("Program.cs");
+        string settings = await ReadHostFileAsync("appsettings.json");
+
+        Assert.Contains("ChannelTopicSynchronization", settings, StringComparison.Ordinal);
+        Assert.Contains("Enabled", settings, StringComparison.Ordinal);
+        Assert.Contains("IntervalSeconds", settings, StringComparison.Ordinal);
+        Assert.Contains("ChannelTopicSynchronizationOptions", program, StringComparison.Ordinal);
+        Assert.Contains("AddHostedService<ChannelTopicSynchronizer>", program, StringComparison.Ordinal);
+        Assert.Equal(2, CountOccurrences(program, "ChannelTopicSynchronizationOptions"));
+        Assert.Equal(1, CountOccurrences(program, "AddHostedService<ChannelTopicSynchronizer>"));
+    }
+
+    [Fact]
     public async Task NotificationConfiguration_IsSharedAcrossAllNotificationServices()
     {
         string options = await ReadHostFileAsync("Services", "PublicationNotificationOptions.cs");

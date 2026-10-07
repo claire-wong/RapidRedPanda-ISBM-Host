@@ -19,6 +19,13 @@ public interface ISubscriptionSessionRepository
         Guid sessionId,
         CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<ConsumerSubscriptionSessionData>> GetConsumerSubscriptionSessionsForChannelAsync(
+        Guid channelId,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult<IReadOnlyList<ConsumerSubscriptionSessionData>>([]);
+    }
+
     Task<CloseSubscriptionSessionResult> CloseSubscriptionSessionAsync(
         Guid sessionId,
         CancellationToken cancellationToken);
