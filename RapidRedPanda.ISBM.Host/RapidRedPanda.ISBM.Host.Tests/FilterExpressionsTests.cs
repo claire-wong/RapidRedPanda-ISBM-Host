@@ -265,24 +265,15 @@ public sealed class FilterExpressionsTests
     }
 
     [Fact]
-    public async Task SessionFilterExpressionsMigration_AddsNullableJsonColumns()
+    public async Task FreshInstall_AddsNullableSessionFilterExpressionJsonColumns()
     {
-        string migration = await ReadScriptAsync("Migrations", "017_AddSessionFilterExpressions.sql");
-        string install = await ReadScriptAsync("Install", "002_CreatePhaseOneSchema.sql");
-        string validation = await ReadScriptAsync("Validation", "ValidatePhaseOneSchema.sql");
+        string install = await ReadScriptAsync("Install", "001_CreateDatabase.sql");
 
-        foreach (string script in new[] { migration, install, validation })
-        {
-            Assert.Contains("FilterExpressionsJson", script, StringComparison.Ordinal);
-            Assert.Contains("SessionFilterExpressions-001", script, StringComparison.Ordinal);
-        }
-
-        Assert.Contains("add FilterExpressionsJson nvarchar(max) null", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("CK_ConsumerSubscriptionSessions_FilterExpressionsJson", migration, StringComparison.Ordinal);
-        Assert.Contains("CK_ProviderRequestSessions_FilterExpressionsJson", migration, StringComparison.Ordinal);
-        Assert.Contains("isjson(FilterExpressionsJson) = 1", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("drop table", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("delete from", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("FilterExpressionsJson nvarchar(max) null", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SessionFilterExpressions-001", install, StringComparison.Ordinal);
+        Assert.Contains("CK_ConsumerSubscriptionSessions_FilterExpressionsJson", install, StringComparison.Ordinal);
+        Assert.Contains("CK_ProviderRequestSessions_FilterExpressionsJson", install, StringComparison.Ordinal);
+        Assert.Contains("isjson(FilterExpressionsJson) = 1", install, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

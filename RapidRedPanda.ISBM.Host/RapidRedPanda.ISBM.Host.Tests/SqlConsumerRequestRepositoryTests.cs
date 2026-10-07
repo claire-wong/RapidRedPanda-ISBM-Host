@@ -71,22 +71,22 @@ public sealed class SqlConsumerRequestRepositoryTests
     }
 
     [Fact]
-    public async Task PhaseThreeMigration_AddsRequestContentAndRecipientStateWithoutCascadeDeletes()
+    public async Task FreshInstall_AddsRequestContentAndRecipientStateWithoutCascadeDeletes()
     {
-        string migration = await ReadMigrationAsync("019_AddRequestRecipientState.sql");
+        string install = await ReadInstallScriptAsync();
 
-        Assert.Contains("alter table dbo.ConsumerRequests", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("MessageContent nvarchar(max) null", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Payload varbinary(max) null", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("create table dbo.ConsumerRequestRecipients", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("RequestMessageId uniqueidentifier not null", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("ProviderRequestSessionId uniqueidentifier not null", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("TopicValue nvarchar(512) not null", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("primary key clustered (RequestMessageId, ProviderRequestSessionId)", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("FK_ConsumerRequestRecipients_Requests", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("FK_ConsumerRequestRecipients_ProviderRequestSessions", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("UQ_ConsumerRequestRecipients_Provider_Outstanding", migration, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("on delete cascade", migration, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("create table dbo.ConsumerRequests", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("MessageContent nvarchar(max) null", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Payload varbinary(max) null", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("create table dbo.ConsumerRequestRecipients", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("RequestMessageId uniqueidentifier not null", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ProviderRequestSessionId uniqueidentifier not null", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("TopicValue nvarchar(512) not null", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("primary key clustered (RequestMessageId, ProviderRequestSessionId)", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("FK_ConsumerRequestRecipients_Requests", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("FK_ConsumerRequestRecipients_ProviderRequestSessions", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("UQ_ConsumerRequestRecipients_Provider_Outstanding", install, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("on delete cascade", install, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -166,7 +166,7 @@ public sealed class SqlConsumerRequestRepositoryTests
         return await File.ReadAllTextAsync(path);
     }
 
-    private static async Task<string> ReadMigrationAsync(string fileName)
+    private static async Task<string> ReadInstallScriptAsync()
     {
         string path = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory,
@@ -176,8 +176,8 @@ public sealed class SqlConsumerRequestRepositoryTests
             "..",
             "Database",
             "Scripts",
-            "Migrations",
-            fileName));
+            "Install",
+            "001_CreateDatabase.sql"));
 
         return await File.ReadAllTextAsync(path);
     }

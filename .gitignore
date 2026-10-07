@@ -5,20 +5,26 @@ docs/
 RapidRedPanda.ISBM.Management.Web/
 RapidRedPanda.ISBM.Management.Web.Tests/
 
-# Database scripts: track production install, migration, and validation SQL sources
+# Database scripts: track production install and maintenance SQL sources
 RapidRedPanda.ISBM.Host/Database/Scripts/*
 !RapidRedPanda.ISBM.Host/Database/Scripts/Install/
 RapidRedPanda.ISBM.Host/Database/Scripts/Install/*
-!RapidRedPanda.ISBM.Host/Database/Scripts/Install/002_CreatePhaseOneSchema.sql
-!RapidRedPanda.ISBM.Host/Database/Scripts/Migrations/
-RapidRedPanda.ISBM.Host/Database/Scripts/Migrations/*
-!RapidRedPanda.ISBM.Host/Database/Scripts/Migrations/*.sql
-!RapidRedPanda.ISBM.Host/Database/Scripts/Validation/
-RapidRedPanda.ISBM.Host/Database/Scripts/Validation/*
-!RapidRedPanda.ISBM.Host/Database/Scripts/Validation/*.sql
+!RapidRedPanda.ISBM.Host/Database/Scripts/Install/*.sql
 
-# Local SQL Server database files and active database directory
+# Maintenance scripts are source controlled
+!RapidRedPanda.ISBM.Host/Database/Scripts/Maintenance/
+RapidRedPanda.ISBM.Host/Database/Scripts/Maintenance/*
+!RapidRedPanda.ISBM.Host/Database/Scripts/Maintenance/*.sql
+
+# Local database working folders
 RapidRedPanda.ISBM.Host/Database/Active/
+RapidRedPanda.ISBM.Host/Database/Empty/
+
+# Local database development scripts
+RapidRedPanda.ISBM.Host/Database/Scripts/Migrations/
+RapidRedPanda.ISBM.Host/Database/Scripts/Validation/
+
+# Local SQL Server database files
 *.mdf
 *.ldf
 
@@ -65,4 +71,3 @@ coverage.*
 .DS_Store
 Thumbs.db
 desktop.ini
-RapidRedPanda.ISBM.Host/Database/Scripts/Install/002_CreatePhaseOneSchema.sql
