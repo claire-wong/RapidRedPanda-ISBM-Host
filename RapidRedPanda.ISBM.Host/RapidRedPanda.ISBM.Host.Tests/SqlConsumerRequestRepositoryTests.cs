@@ -180,6 +180,31 @@ public sealed class SqlConsumerRequestRepositoryTests
         Assert.Contains("await RollbackQuietlyAsync(transaction", source, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ExpireRequestSource_GatesSuppressionOnOwnedActiveTransition()
+    {
+        string source = await ReadHostFileAsync("Data", "SqlConsumerRequestRepository.cs");
+        string method = ExtractMethodSource(source, "public async Task<ConsumerRequestRepositoryResult> ExpireRequestAsync");
+
+        Assert.Contains("and ConsumerSessionId = @ConsumerSessionId", method, StringComparison.Ordinal);
+        Assert.Contains("and ChannelId = @ChannelId", method, StringComparison.Ordinal);
+        Assert.Contains("and ExpiredUtc is null", method, StringComparison.Ordinal);
+        Assert.Contains("declare @SqlUtcNow datetime2(7) = sysutcdatetime()", method, StringComparison.Ordinal);
+        Assert.Contains("and (EffectiveExpiryUtc is null or EffectiveExpiryUtc > @SqlUtcNow)", method, StringComparison.Ordinal);
+        Assert.Contains("select @@rowcount;", method, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("await command.ExecuteScalarAsync(cancellationToken)", method, StringComparison.Ordinal);
+        Assert.Contains("transitionResult is not int count || count is < 0 or > 1", method, StringComparison.Ordinal);
+
+        string guarded = ExtractMethodSource(method, "if (transitionCount == 1)");
+        Assert.Contains("SqlRequestNotificationSuppression.SuppressForMessageAsync", guarded, StringComparison.Ordinal);
+        Assert.Contains("connection,", guarded, StringComparison.Ordinal);
+        Assert.Contains("transaction,", guarded, StringComparison.Ordinal);
+        Assert.Contains("await transaction.CommitAsync", method, StringComparison.Ordinal);
+        Assert.Contains("await RollbackQuietlyAsync(transaction", method, StringComparison.Ordinal);
+        Assert.True(method.IndexOf("await transaction.CommitAsync", StringComparison.Ordinal) >
+            method.IndexOf(guarded, StringComparison.Ordinal) + guarded.Length);
+    }
+
     private static string ExtractMethodSource(string source, string methodSignature)
     {
         int methodStart = source.IndexOf(methodSignature, StringComparison.Ordinal);

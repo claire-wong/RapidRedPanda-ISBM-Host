@@ -38,6 +38,7 @@
     <Compile Include="PublicationNotificationUriBuilderTests.cs" />
     <Compile Include="SessionCloseServiceTests.cs" />
     <Compile Include="SqlConsumerRequestRepositoryTests.cs" />
+    <Compile Include="SqlConsumerRequestExpiryIntegrationTests.cs" />
     <Compile Include="SqlConsumerRequestSessionRepositoryTests.cs" />
     <Compile Include="SqlRequestResponseRepositoryTests.cs" />
     <Compile Include="SqlPublicationNotificationRepositoryTests.cs" />

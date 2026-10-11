@@ -144,33 +144,50 @@ public sealed class SqlConsumerRequestRepository : IConsumerRequestRepository
             try
             {
                 const string sql = """
+                    declare @SqlUtcNow datetime2(7) = sysutcdatetime();
+
                     update dbo.ConsumerRequests
                        set ExpiredUtc = coalesce(ExpiredUtc, @ExpiredUtc)
                      where MessageId = @MessageId
                        and ConsumerSessionId = @ConsumerSessionId
-                       and ChannelId = @ChannelId;
+                       and ChannelId = @ChannelId
+                       and ExpiredUtc is null
+                       and (EffectiveExpiryUtc is null or EffectiveExpiryUtc > @SqlUtcNow);
+
+                    select @@rowcount;
                     """;
 
+                int transitionCount;
                 await using (SqlCommand command = new(sql, connection, transaction))
                 {
                     command.Parameters.Add("@ExpiredUtc", SqlDbType.DateTime2).Value = expiredUtc;
                     command.Parameters.Add("@MessageId", SqlDbType.UniqueIdentifier).Value = messageId;
                     command.Parameters.Add("@ConsumerSessionId", SqlDbType.UniqueIdentifier).Value = consumerSessionId;
                     command.Parameters.Add("@ChannelId", SqlDbType.UniqueIdentifier).Value = channelId;
-                    await command.ExecuteNonQueryAsync(cancellationToken);
+                    object? transitionResult = await command.ExecuteScalarAsync(cancellationToken);
+                    if (transitionResult is not int count || count is < 0 or > 1)
+                    {
+                        throw new InvalidOperationException("Unexpected request expiry transition count.");
+                    }
+                    transitionCount = count;
                 }
 
-                int suppressedCount = await SqlRequestNotificationSuppression.SuppressForMessageAsync(
-                    connection,
-                    transaction,
-                    messageId,
-                    expiredUtc,
-                    PublicationNotificationSuppressionReasons.RequestExpired,
-                    cancellationToken);
+                int suppressedCount = 0;
+                if (transitionCount == 1)
+                {
+                    suppressedCount = await SqlRequestNotificationSuppression.SuppressForMessageAsync(
+                        connection,
+                        transaction,
+                        messageId,
+                        expiredUtc,
+                        PublicationNotificationSuppressionReasons.RequestExpired,
+                        cancellationToken);
+                }
 
                 await transaction.CommitAsync(cancellationToken);
                 _logger.LogInformation(
-                    "Suppressed {SuppressedCount} request notifications while expiring request {MessageId}.",
+                    "Request expiry matched {TransitionCount} active owned request(s) and suppressed {SuppressedCount} notifications. MessageId: {MessageId}.",
+                    transitionCount,
                     suppressedCount,
                     messageId);
                 return ConsumerRequestRepositoryResult.Success();
