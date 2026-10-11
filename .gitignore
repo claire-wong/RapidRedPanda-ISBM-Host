@@ -1,5 +1,27 @@
-# Documentation is local-only until final public-release review
-docs/
+# Internal engineering records are not public documentation
+/.agents/
+/agentTasks/
+
+# Publish only curated documentation pages and reviewed image assets
+/docs/**
+!/docs/
+!/docs/README.md
+!/docs/introduction/
+!/docs/introduction/*.md
+!/docs/getting-started/
+!/docs/getting-started/*.md
+!/docs/api/
+!/docs/api/*.md
+!/docs/architecture/
+!/docs/architecture/*.md
+!/docs/operations/
+!/docs/operations/*.md
+!/docs/images/
+!/docs/images/Publication_WorkFlow.png.png
+!/docs/images/Request_WorkFlow.png.png
+!/docs/images/RapidRedPanda_ _ISBM_Host_Architecture.png
+!/docs/images/RapidRedPanda_Integration_Options.png
+!/docs/images/RapidRedPanda_IoT_Temperature_Flow.png
 
 # Prototype management projects are not part of the upcoming public release
 RapidRedPanda.ISBM.Management.Web/
