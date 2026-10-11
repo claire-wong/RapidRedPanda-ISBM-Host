@@ -13,6 +13,51 @@ namespace RapidRedPanda.ISBM.Host.Tests;
 public sealed class PhaseFourRestFaultStatusTests
 {
     [Fact]
+    public async Task ExpireRequest_ServiceSuccess_ReturnsNoContent()
+    {
+        ConsumerRequestService service = new();
+        ConsumerRequestServiceController controller = CreateConsumerRequestController(service);
+
+        IActionResult result = await controller.ExpireRequest(
+            Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"), CancellationToken.None);
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal(1, service.ExpireCalls);
+    }
+
+    [Fact]
+    public async Task ExpireRequest_UnauthorizedSession_DoesNotInvokeService()
+    {
+        ConsumerRequestService service = new();
+        ConsumerRequestServiceController controller = CreateConsumerRequestController(
+            service, new AuthorizationService { SessionOutcome = IsbmAuthorizationOutcome.NotFoundOrUnauthorized });
+
+        IActionResult result = await controller.ExpireRequest(
+            Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"), CancellationToken.None);
+
+        AssertFault<NotFoundObjectResult>(result, "SessionFault");
+        Assert.Equal(0, service.ExpireCalls);
+    }
+
+    [Theory]
+    [InlineData(ExpireRequestFailureKind.ParameterFault, 400, "ParameterFault")]
+    [InlineData(ExpireRequestFailureKind.SessionFault, 404, "SessionFault")]
+    [InlineData(ExpireRequestFailureKind.OperationFault, 500, "OperationFault")]
+    public async Task ExpireRequest_ServiceFailure_PreservesFaultMapping(
+        ExpireRequestFailureKind failure, int status, string fault)
+    {
+        ConsumerRequestServiceController controller = CreateConsumerRequestController(
+            new ConsumerRequestService { ExpireResult = ExpireRequestResult.Failure(failure) });
+
+        IActionResult result = await controller.ExpireRequest(
+            Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"), CancellationToken.None);
+
+        ObjectResult response = Assert.IsAssignableFrom<ObjectResult>(result);
+        Assert.Equal(status, response.StatusCode);
+        Assert.Equal(fault, Assert.IsType<FaultResponse>(response.Value).Fault);
+    }
+
+    [Fact]
     public async Task ReadPublication_NoMessage_ReturnsNotFoundMessageFault()
     {
         ConsumerPublicationServiceController controller = CreateConsumerPublicationController(new ConsumerPublicationService
@@ -572,6 +617,8 @@ public sealed class PhaseFourRestFaultStatusTests
         public OpenConsumerRequestSessionResult OpenResult { get; init; } =
             OpenConsumerRequestSessionResult.Success(Guid.NewGuid());
         public ReadResponseResult ReadResult { get; init; } = ReadResponseResult.NoResponse();
+        public ExpireRequestResult ExpireResult { get; init; } = ExpireRequestResult.Success();
+        public int ExpireCalls { get; private set; }
 
         public Task<OpenConsumerRequestSessionResult> OpenConsumerRequestSessionAsync(
             string channelId,
@@ -595,8 +642,11 @@ public sealed class PhaseFourRestFaultStatusTests
             string sessionId,
             string messageId,
             ChannelCredentials? credentials,
-            CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
+            CancellationToken cancellationToken)
+        {
+            ExpireCalls++;
+            return Task.FromResult(ExpireResult);
+        }
 
         public Task<ReadResponseResult> ReadResponseAsync(
             string sessionId,
