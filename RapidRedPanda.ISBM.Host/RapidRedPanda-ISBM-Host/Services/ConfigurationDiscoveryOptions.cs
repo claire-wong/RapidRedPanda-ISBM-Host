@@ -6,6 +6,7 @@ public sealed class ConfigurationDiscoveryOptions
 
     public int SecurityLevelConformance { get; set; } = 1;
 
+    // Advertises TLS and requires HTTPS for ISBM requests; hosting supplies TLS.
     public bool IsTlsEnabled { get; set; }
 
     public bool IsSecurityTokenEncryptionEnabled { get; set; }
@@ -19,7 +20,6 @@ public sealed class ConfigurationDiscoveryOptions
     public static bool IsValid(ConfigurationDiscoveryOptions options)
     {
         return options.SecurityLevelConformance == 1 &&
-            !options.IsTlsEnabled &&
             Uri.TryCreate(options.AdditionalInformationUrl, UriKind.Absolute, out Uri? uri) &&
             uri.Scheme is "http" or "https";
     }

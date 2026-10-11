@@ -110,6 +110,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// Reject insecure ISBM requests before redirecting or processing credentials.
+app.UseMiddleware<IsbmHttpsRequirementMiddleware>();
 app.UseHttpsRedirection();
 
 // Add authentication and authorization middleware

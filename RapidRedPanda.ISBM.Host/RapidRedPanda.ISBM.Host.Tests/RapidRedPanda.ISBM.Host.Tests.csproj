@@ -47,6 +47,7 @@
     <Compile Include="UsernameTokenParserTests.cs" />
     <Compile Include="ChannelManagementControllerTests.cs" />
     <Compile Include="ConfigurationDiscoveryControllerTests.cs" />
+    <Compile Include="IsbmHttpsRequirementMiddlewareTests.cs" />
     <Compile Include="PhaseOneAuthenticationCoverageTests.cs" />
     <Compile Include="PhaseTwoLifecycleComplianceTests.cs" />
     <Compile Include="PhaseThreeDurableRequestLifecycleTests.cs" />
