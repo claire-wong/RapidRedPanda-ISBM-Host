@@ -85,15 +85,17 @@ public sealed class ConfigurationDiscoveryControllerTests
         Assert.Equal("SecurityTokenFault", Assert.IsType<FaultResponse>(result.Value).Fault);
     }
 
-    [Fact]
-    public void GetSecurityDetails_ValidBasicCredentials_ReturnsConfiguredSecurityFacts()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GetSecurityDetails_ValidBasicCredentials_ReturnsConfiguredSecurityFacts(bool isTlsEnabled)
     {
-        ConfigurationDiscoveryController controller = CreateController();
+        ConfigurationDiscoveryController controller = CreateController(isTlsEnabled);
         controller.Request.Headers.Authorization = "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes("discovery-user:discovery-pass"));
 
         OkObjectResult result = Assert.IsType<OkObjectResult>(controller.GetSecurityDetails());
         SecurityDetailsResponse response = Assert.IsType<SecurityDetailsResponse>(result.Value);
-        Assert.False(response.IsTlsEnabled);
+        Assert.Equal(isTlsEnabled, response.IsTlsEnabled);
         Assert.False(response.IsSecurityTokenRequired);
         Assert.False(response.IsSecurityTokenEncryptionEnabled);
         Assert.False(response.IsCertificateRequired);
@@ -102,6 +104,7 @@ public sealed class ConfigurationDiscoveryControllerTests
         Assert.False(response.IsEndToEndMessageEncryptionEnabled);
 
         using JsonDocument json = JsonDocument.Parse(JsonSerializer.Serialize(response));
+        Assert.Equal(isTlsEnabled, json.RootElement.GetProperty("isTLSEnabled").GetBoolean());
         Assert.Equal(new[]
         {
             "isCertificateRequired", "isEndToEndMessageEncryptionEnabled", "isKeyManagementServiceEnabled",
@@ -115,7 +118,7 @@ public sealed class ConfigurationDiscoveryControllerTests
         Assert.True(ConfigurationDiscoveryOptions.IsValid(new ConfigurationDiscoveryOptions()));
         Assert.False(ConfigurationDiscoveryOptions.IsValid(new ConfigurationDiscoveryOptions { SecurityLevelConformance = 0 }));
         Assert.False(ConfigurationDiscoveryOptions.IsValid(new ConfigurationDiscoveryOptions { SecurityLevelConformance = 2 }));
-        Assert.False(ConfigurationDiscoveryOptions.IsValid(new ConfigurationDiscoveryOptions { IsTlsEnabled = true }));
+        Assert.True(ConfigurationDiscoveryOptions.IsValid(new ConfigurationDiscoveryOptions { IsTlsEnabled = true }));
         Assert.False(ConfigurationDiscoveryOptions.IsValid(new ConfigurationDiscoveryOptions { AdditionalInformationUrl = "not-a-url" }));
     }
 
@@ -130,10 +133,11 @@ public sealed class ConfigurationDiscoveryControllerTests
         Assert.Null(BasicAuthenticationCredentials.Read(context.Request, new UsernameTokenParser()));
     }
 
-    private static ConfigurationDiscoveryController CreateController()
+    private static ConfigurationDiscoveryController CreateController(bool isTlsEnabled = false)
     {
         ConfigurationDiscoveryOptions options = new()
         {
+            IsTlsEnabled = isTlsEnabled,
             SecurityDetailsUsername = "discovery-user",
             SecurityDetailsPassword = "discovery-pass"
         };
