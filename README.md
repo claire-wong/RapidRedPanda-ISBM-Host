@@ -56,19 +56,17 @@ The Host supplies messaging services rather than a CCOM-specific server or a gen
 
 ## Architecture Overview
 
-```mermaid
-flowchart LR
-    A[Publishing or requesting application] <-->|ISBM REST over HTTP| H[RapidRedPanda ISBM Host]
-    B[Receiving or responding application] <-->|ISBM REST over HTTP| H
-    H <--> S[(SQL Server)]
-    H <--> M[Azure Service Bus]
-```
+![RapidRedPanda ISBM Host architecture overview showing ISBM REST clients, the Host, SQL Server persistence, Azure Service Bus messaging, and possible future broker alternatives](docs/images/RapidRedPanda-Architecture-Overview.png)
 
 Applications communicate through the Host's ISBM interfaces. SQL Server maintains channels, sessions, message lifecycle state, responses, and notification records. Azure Service Bus supplies the broker transport behind publication and request delivery. The Host also sends optional availability callbacks to application listeners.
 
 See [Architecture](docs/architecture/overview.md) for the component diagram and backend responsibilities.
 
-ISBM defines the application-facing services; different implementations can choose different brokers. Azure Service Bus is the current backend for RapidRedPanda, and alternative backends are not documented as supported.
+### Technology Independence
+
+RapidRedPanda ISBM Host implements the OpenO&M ISBM 2.0 REST messaging interfaces independently of the underlying messaging and persistence technologies. ISBM 2.0 defines the application-facing contracts; it does not mandate SQL Server, Azure Service Bus, or any other specific backend technology.
+
+The first release uses Microsoft SQL Server for persistent storage and Azure Service Bus for broker-based messaging. These are the only currently supported backends. Future RapidRedPanda implementations may support alternative messaging brokers or relational databases while retaining the same application-facing ISBM contracts, but no other backend is implemented or documented as compatible in this release.
 
 ## Getting Started
 
@@ -85,8 +83,9 @@ Read these pages in order:
 1. [What Is ISBM?](docs/introduction/what-is-isbm.md) explains the problem and messaging patterns.
 2. [ISA-95 and ISBM](docs/introduction/isa95-and-isbm.md) explains the standards and implementation layers.
 3. [Core Concepts](docs/introduction/core-concepts.md) introduces the vocabulary and current Host behavior.
-4. [Getting Started](docs/getting-started/README.md) covers infrastructure setup and a two-client publication tutorial.
-5. [ISBM REST API](docs/api/overview.md) provides shared contracts, channel/session, publication and request/response reference, notifications, configuration discovery, message content, faults, and current compatibility limits.
+4. [Integration Options](docs/integration/README.md) introduces ClientAdapter, CLI Wrapper, and direct REST approaches.
+5. [Getting Started](docs/getting-started/README.md) covers infrastructure setup and a two-client publication tutorial.
+6. [ISBM REST API](docs/api/overview.md) provides shared contracts, channel/session, publication and request/response reference, notifications, configuration discovery, message content, faults, and current compatibility limits.
 
 ## Standards and References
 

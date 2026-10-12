@@ -2,6 +2,10 @@
 
 This page introduces the vocabulary used by ISBM clients and explains the current RapidRedPanda behavior where it matters. Examples are conceptual, not complete REST request payloads.
 
+![Conceptual ISBM publication/subscription and request/response message flow through the RapidRedPanda ISBM Host](../images/ISBM-Messaging-Overview.png)
+
+The diagram summarizes the two main messaging patterns. Publication/subscription lets one publication provider post through the Host while multiple subscription consumers independently read relevant publications. Request/response lets one request consumer post a request through the Host, one matching provider read and respond, and the original requester read the response through the Host. The arrows are conceptual message flow, not literal server-pushed HTTP payload delivery, and a single request should not be read as automatically broadcast to every possible provider.
+
 ## Channel
 
 A channel identifies a place for related message exchanges. Its type determines whether it supports publications or requests. An integration might use one publication channel for equipment events and a separate request channel for equipment queries.
@@ -97,6 +101,6 @@ For a publication exchange, a provider opens a publication session on a channel 
 
 For request/response, a consumer opens a request session and posts a request with topics. A provider opens its request session selecting topics, reads requests, and posts responses linked to request identifiers. The consumer retrieves those responses.
 
-These are learning examples. Detailed payloads, lifecycle rules, faults, and deployment instructions require the later API and operational documentation.
+These are learning examples. For detailed operation order, lifecycle rules, and faults, see [Publication / Subscription](../api/publication-workflow.md) and [Request / Response](../api/request-response-workflow.md). Deployment instructions require the later operational documentation.
 
 Previous: [ISA-95 and ISBM](isa95-and-isbm.md). Introduction: [What Is ISBM?](what-is-isbm.md). Project: [RapidRedPanda ISBM Host](../../README.md).

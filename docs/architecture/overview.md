@@ -2,7 +2,7 @@
 
 Applications use the Host's [REST API](../api/overview.md), not database tables or broker subscriptions as their public interface.
 
-![ISBM clients communicate through the Host, backed by SQL Server and Azure Service Bus](../images/RapidRedPanda_%20_ISBM_Host_Architecture.png)
+![ISBM clients communicate through the Host, backed by SQL Server and Azure Service Bus](../images/RapidRedPanda-Host-Architecture.png)
 
 The arrows summarize logical flow, not every HTTP exchange. Responders also post responses back through the Host; clients retrieve messages through REST. Responses are persisted in SQL; the diagram does not mean every response traverses Service Bus. Optional outbound availability callbacks are not shown.
 
@@ -18,6 +18,8 @@ The arrows summarize logical flow, not every HTTP exchange. Responders also post
 
 SQL and broker actions do not form a promised atomic cross-system transaction. Failures can have partial effects. Applications need explicit retry and deduplication policies; see [Compatibility and Limitations](../api/compatibility-and-limitations.md).
 
+The ISBM REST services are the application-facing interface. SQL Server and Azure Service Bus are implementation backends used by this Host release, not mandatory components of the ISBM standard. Future implementation alternatives could preserve the same ISBM-facing contracts, but this release documents SQL Server and Azure Service Bus as the supported persistence and messaging technologies.
+
 ## Messaging Patterns
 
 Publication/subscription distributes messages to sessions selecting matching topics. Request/response correlates responses to a request and can involve multiple responders. Neither requires a particular business model. Follow the [publication](../api/publication-workflow.md) and [request/response](../api/request-response-workflow.md) references for operation order, ownership, and expiry.
@@ -26,7 +28,7 @@ Notifications signal availability, not the application payload. Listeners subseq
 
 ## Optional Application Example
 
-![A temperature publisher and consumer use the Host through optional client adapters](../images/RapidRedPanda_IoT_Temperature_Flow.png)
+![A temperature publisher and consumer use the Host through optional client adapters](../images/RapidRedPanda-IoT-Temperature-Flow.png)
 
 This conceptual ecosystem example uses CCOM measurement content and an OIIE-style topic convention. Neither is mandatory. It is not an installed demo or a verified ClientAdapter tutorial bundled with this release. Beginner examples use generic JSON and direct REST; applications in other languages can use the same interfaces.
 
