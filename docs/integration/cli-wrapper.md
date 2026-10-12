@@ -12,13 +12,58 @@ Python examples in the Wrapper repository invoke the CLI with `subprocess`. Pyth
 
 ## Minimal Example
 
-From an extracted Windows Wrapper release package, open a subscription on an existing Publication channel:
+From an extracted Windows Wrapper release package, open a provider publication session on an existing Publication channel and post one JSON message:
 
 ```powershell
-.\RapidRedPanda.Wrapper.Cli.exe open-subscription --host https://localhost:7443/isbm/2.0 --channel urn:rapidredpanda:demo:publication --topic equipment.temperature --user $env:ISBM_USER --password $env:ISBM_PASSWORD
+$hostUrl = 'https://localhost:7443/isbm/2.0'
+$channel = 'urn:rapidredpanda:demo:publication'
+$topic = 'equipment.temperature'
+$content = '{"equipmentId":"PUMP-101","temperature":72.5,"status":"Normal"}'
+
+$open = .\RapidRedPanda.Wrapper.Cli.exe open-publication-session `
+    --host $hostUrl `
+    --channel $channel `
+    --topic $topic `
+    --user $env:ISBM_USER `
+    --password $env:ISBM_PASSWORD | ConvertFrom-Json
+
+if (-not $open.success) {
+    throw "Open publication session failed."
+}
+
+$sessionId = $open.data.sessionId
+
+$post = .\RapidRedPanda.Wrapper.Cli.exe post-publication `
+    --host $hostUrl `
+    --session-id $sessionId `
+    --topic $topic `
+    --content $content `
+    --user $env:ISBM_USER `
+    --password $env:ISBM_PASSWORD | ConvertFrom-Json
+
+if (-not $post.success) {
+    throw "Post publication failed."
+}
+
+"Publication session: $sessionId"
+"Published message: $($post.data.messageId)"
 ```
 
-The command writes a JSON response. On success, the response includes fields such as `success`, `command`, `timestampUtc`, and `data.sessionId`.
+The CLI command handles HTTP request construction and supported ISBM envelope formatting, then writes structured JSON output and process exit codes for automation. Applications still need to manage session IDs, operation failures, and publication lifetime. More detailed fault handling belongs in the Wrapper documentation.
+
+## Session Cleanup
+
+Run the close command only when remaining unexpired publications from this provider session may be expired. Under ISBM 2.0 Section 5.4.4, closing the provider publication session expires remaining unexpired publications posted during that session.
+
+```powershell
+.\RapidRedPanda.Wrapper.Cli.exe close-publication-session `
+    --host $hostUrl `
+    --session-id $sessionId `
+    --user $env:ISBM_USER `
+    --password $env:ISBM_PASSWORD
+```
+
+The CLI exposes the ISBM lifecycle as commands; it does not automatically manage session lifetime for you. Do not close immediately after posting if subscribers still need to claim the publication, and do not abandon sessions indefinitely.
 
 ## Requirements
 
@@ -27,11 +72,12 @@ The command writes a JSON response. On success, the response includes fields suc
 - The Publication channel `urn:rapidredpanda:demo:publication` must already exist.
 - The topic `equipment.temperature` must match the publisher/subscriber agreement.
 - Matching channel credentials are required.
-- Opening a subscription creates Host-managed session state. Close the session when you are done.
+- An eligible subscription must already be open if you intend to verify retrieval.
+- Publishing successfully does not prove that a subscriber received or processed the message.
 
 ## Credential Security
 
-The example avoids a literal password by reading `$env:ISBM_PASSWORD`, but the expanded command-line argument may still be visible through shell history, logs, or process inspection. Use the Wrapper's documented configuration and security guidance for shared or production environments, and prefer trusted HTTPS endpoints.
+The example avoids a literal password by reading `$env:ISBM_PASSWORD`, but PowerShell still expands it into a `--password` process argument that may be visible through shell history, logs, or process inspection. Use the Wrapper's documented configuration and security guidance for shared or production environments, and prefer trusted HTTPS endpoints.
 
 ## Further Documentation
 

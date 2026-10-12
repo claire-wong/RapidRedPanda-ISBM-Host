@@ -10,13 +10,15 @@ A publisher posts to a Publication channel. Each already-open consumer subscript
 
 The diagram uses service-operation names, not literal URL paths. Its ExpirePublication step is **optional**, not a required acknowledgment after every consumer read. RemovePublication affects one consumer's outstanding delivery; expiry affects eligibility for later delivery on the channel. Neither retracts content already processed by an application.
 
+Closing a provider publication session is also a publication-lifecycle action. Under ISBM 2.0 Section 5.4.4, closing the session expires all unexpired messages posted during that session. Do not treat provider-session close as harmless local cleanup immediately after posting when subscribers still need to claim the publication.
+
 1. Create a secured Publication channel.
 2. Open a provider publication session and a consumer subscription with matching topics.
 3. Wait for the subscription to open before posting.
 4. Post a publication using the provider session.
 5. Poll using the consumer session, or wait for an optional availability notification before reading.
 6. Process the returned content, then remove that consumer's outstanding publication.
-7. Close each session when finished; delete only disposable demonstration channels.
+7. Close the consumer session when finished. Close the provider session only when remaining unexpired publications from that session may be expired; delete only disposable demonstration channels.
 
 Publisher and consumer IDs are distinct. See [Sessions](sessions.md) for opening and closing; all routes below are relative to `/isbm/2.0`.
 
@@ -29,7 +31,7 @@ Publisher and consumer IDs are distinct. See [Sessions](sessions.md) for opening
 | RemovePublication | DELETE `sessions/{consumerSessionId}/publication` | 204 | No body or message ID; removes this session's outstanding delivery. |
 | ExpirePublication | DELETE `sessions/{providerSessionId}/publications/{messageId}` | 204 | No body; marks matching channel publication expired. |
 
-Supply matching Basic channel credentials on protected calls. Singular `publication` belongs to consumer read/removal; plural `publications` belongs to provider post/expiry.
+Supply matching Basic channel credentials on protected calls. Singular `publication` belongs to consumer read/removal; plural `publications` belongs to provider post/expiry. Provider publication-session close uses the session-close route documented in [Sessions](sessions.md), and it has the additional expiration effect described above.
 
 ## Posting and Topics
 
@@ -61,13 +63,19 @@ Use the actual returned messageId. The Host generates it; no caller-supplied ide
 
 Topics must be a nonempty array of nonblank strings without surrounding whitespace. Duplicate exact values are removed. Publication posting accepts at most **32 distinct topics**. Topic selection is case-sensitive and matches an intersection: any common topic can select a publication. It is not XPath/content filtering or a wildcard topic-language guarantee.
 
-A subscription opened after posting does not acquire the earlier message retroactively. Subscribe before posting and coordinate readiness between clients.
+In the current Host implementation, a subscription must already be open when a publication is posted to become an eligible recipient. The subscription must be on the matching channel and have topic intersection with the publication. A subscription opened after a publication is posted does not receive that earlier publication. Closing the provider publication session can prevent still-pending publications from being newly claimed.
 
 ### Duration Expiry
 
 Expiry is a duration string such as `PT5M`, not a timestamp. Positive durations set broker time-to-live and the Host's recorded effective expiry. Malformed/overflowing durations return ParameterFault.
 
 Omitted/null/blank expiry, and parsed zero or negative durations, currently leave the explicit lifetime unset. They do not immediately expire the publication. Omit expiry to use backend defaults, or use a positive duration; use ExpirePublication for explicit expiry. An unset lifetime does not promise indefinite broker retention.
+
+### Expiration Mechanisms
+
+Publication availability can end through an explicit `ExpirePublication` call, a positive `expiry` duration supplied while posting, or provider publication-session closure. These are separate from `RemovePublication`, which acknowledges one consumer session's outstanding delivery and does not remove other consumers' independent deliveries.
+
+Provider session closure expires remaining unexpired publications posted during that session. Short-lived publishers should not close immediately after posting unless expiration of the just-posted publications is intended. Long-running publishers may keep a provider session open and close it deliberately during shutdown. Batch publishers should remember that closing the batch's provider session expires remaining unexpired publications posted in that session. Do not abandon sessions indefinitely; choose an explicit session-lifetime and publication-expiration policy for the application.
 
 ## Reading and Removal
 
@@ -132,4 +140,3 @@ Publishing sends to Azure Service Bus before recording metadata in SQL. A failur
 A successful callback is not an acknowledgment that the consumer processed the message. Closing a consumer deletes its broker subscription; finish processing first. Deleting a channel affects all clients using that channel.
 
 Return to [API Overview](overview.md) or [Compatibility and Limitations](compatibility-and-limitations.md).
-
