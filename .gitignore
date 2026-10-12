@@ -10,6 +10,8 @@
 !/docs/introduction/*.md
 !/docs/getting-started/
 !/docs/getting-started/*.md
+!/docs/integration/
+!/docs/integration/*.md
 !/docs/api/
 !/docs/api/*.md
 !/docs/architecture/
@@ -17,12 +19,13 @@
 !/docs/operations/
 !/docs/operations/*.md
 !/docs/images/
-!/docs/images/Publication_WorkFlow.png.png
-!/docs/images/Request_WorkFlow.png.png
-!/docs/images/RapidRedPanda_ _ISBM_Host_Architecture.png
-!/docs/images/RapidRedPanda_Integration_Options.png
-!/docs/images/RapidRedPanda_IoT_Temperature_Flow.png
-
+!/docs/images/ISBM-Messaging-Overview.png
+!/docs/images/ISBM-Publication-Workflow.png
+!/docs/images/ISBM-Request-Response-Workflow.png
+!/docs/images/RapidRedPanda-Architecture-Overview.png
+!/docs/images/RapidRedPanda-Host-Architecture.png
+!/docs/images/RapidRedPanda-Integration-Options.png
+!/docs/images/RapidRedPanda-IoT-Temperature-Flow.png
 # Prototype management projects are not part of the upcoming public release
 RapidRedPanda.ISBM.Management.Web/
 RapidRedPanda.ISBM.Management.Web.Tests/

@@ -6,7 +6,7 @@ A publisher posts to a Publication channel. Each already-open consumer subscript
 
 ## Workflow
 
-![Publication workflow with consumer subscription setup, publisher post, optional availability notice, consumer read and removal, optional publisher expiry, and session close.](../images/Publication_WorkFlow.png.png)
+![Publication workflow with consumer subscription setup, publisher post, optional availability notice, consumer read and removal, optional publisher expiry, and session close.](../images/ISBM-Publication-Workflow.png)
 
 The diagram uses service-operation names, not literal URL paths. Its ExpirePublication step is **optional**, not a required acknowledgment after every consumer read. RemovePublication affects one consumer's outstanding delivery; expiry affects eligibility for later delivery on the channel. Neither retracts content already processed by an application.
 

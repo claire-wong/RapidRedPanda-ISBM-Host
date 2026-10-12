@@ -6,7 +6,7 @@ A **consumer request session** belongs to the requester. A **provider request se
 
 ## Workflow and Correlation
 
-![Request workflow showing responder and requester sessions, request posting and retrieval, optional availability callbacks, response posting and retrieval, removal, and closing both sessions.](../images/Request_WorkFlow.png.png)
+![Request workflow showing responder and requester sessions, request posting and retrieval, optional availability callbacks, response posting and retrieval, removal, and closing both sessions.](../images/ISBM-Request-Response-Workflow.png)
 
 The diagram uses service names, not literal REST paths. Its RemoveRequest-before-PostResponse order works **while the request remains active**: removal acknowledges that responder's delivery, not deletion of the request's correlation record. The tutorial posts the response before removing the request to keep it outstanding through submission. Neither ordering guarantees that the requester can read a response after request expiry.
 
