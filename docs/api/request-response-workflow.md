@@ -2,7 +2,7 @@
 
 A **consumer request session** belongs to the requester. A **provider request session** belongs to the responder. Both use a Request channel. These roles differ from publication publisher/subscriber sessions.
 
-**Source-reviewed draft:** contracts and outcomes are implementation-derived, not live results. Use [Your First Request and Response](../getting-started/first-request-response.md) for a two-client JSON walkthrough.
+**Source-reviewed draft:** contracts and outcomes are implementation-derived, not live results. Use [Complete REST Request/Response Tutorial](../getting-started/first-request-response.md) for a two-client JSON walkthrough.
 
 ## Workflow and Correlation
 

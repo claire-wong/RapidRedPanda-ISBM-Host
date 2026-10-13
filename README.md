@@ -72,7 +72,7 @@ The first release uses Microsoft SQL Server for persistent storage and Azure Ser
 
 The current implementation requires a .NET 10 development environment, SQL Server, and an Azure Service Bus namespace supporting topics and subscriptions, together with appropriate configuration and access permissions.
 
-Follow the [Getting Started guide](docs/getting-started/README.md) for Windows prerequisites, installation, configuration, and a first JSON publication. These instructions are source-reviewed drafts, not end-to-end validated deployment steps. Docker deployment is deferred to a future release.
+Follow the [Getting Started guide](docs/getting-started/README.md) for Windows prerequisites, installation, configuration, and beginner integration choices. Start with [Integration Options](docs/integration/README.md) when you want a compact .NET ClientAdapter, CLI Wrapper, or direct REST example before the complete PowerShell walkthroughs. These instructions are source-reviewed drafts, not end-to-end validated deployment steps. Docker deployment is deferred to a future release.
 
 ## Documentation
 
@@ -84,7 +84,7 @@ Read these pages in order:
 2. [ISA-95 and ISBM](docs/introduction/isa95-and-isbm.md) explains the standards and implementation layers.
 3. [Core Concepts](docs/introduction/core-concepts.md) introduces the vocabulary and current Host behavior.
 4. [Integration Options](docs/integration/README.md) introduces ClientAdapter, CLI Wrapper, and direct REST approaches.
-5. [Getting Started](docs/getting-started/README.md) covers infrastructure setup and a two-client publication tutorial.
+5. [Getting Started](docs/getting-started/README.md) covers infrastructure setup, beginner integration choices, and complete two-client REST tutorials.
 6. [ISBM REST API](docs/api/overview.md) provides shared contracts, channel/session, publication and request/response reference, notifications, configuration discovery, message content, faults, and current compatibility limits.
 
 ## Standards and References

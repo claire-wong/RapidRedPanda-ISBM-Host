@@ -6,7 +6,7 @@ RapidRedPanda exposes OpenO&M ISBM 2.0 messaging services under `/isbm/2.0`. Thi
 
 ## Choose Your Path
 
-New to messaging? Begin with [Core Concepts](../introduction/core-concepts.md), then [Getting Started](../getting-started/README.md) and [Your First Message](../getting-started/first-message.md).
+New to messaging? Begin with [Core Concepts](../introduction/core-concepts.md), then [Getting Started](../getting-started/README.md) and [Complete REST Publication Tutorial](../getting-started/first-message.md).
 
 | Reference | Use it to |
 | --- | --- |
@@ -22,7 +22,7 @@ New to messaging? Begin with [Core Concepts](../introduction/core-concepts.md), 
 
 This reference covers shared contracts, publication/subscription, request/response, notifications, and configuration discovery. Try the optional [local listener walkthrough](../getting-started/notification-listener.md) after the publication tutorial.
 
-After the publication tutorial, try [Your First Request and Response](../getting-started/first-request-response.md) with two client windows.
+After the publication tutorial, try [Complete REST Request/Response Tutorial](../getting-started/first-request-response.md) with two client windows.
 
 ## Addressing and Headers
 
@@ -42,7 +42,7 @@ Protected operations use:
 Authorization: Basic <base64-of-UTF8-username:password>
 ```
 
-This is a schematic header, not a credential. Base64 is not encryption. Connect to a trusted HTTPS endpoint from the outset; never send credentials to HTTP expecting a redirect to protect them. Do not log headers or credential-bearing bodies. The [first-message tutorial](../getting-started/first-message.md) prompts for credentials without publishing a usable password.
+This is a schematic header, not a credential. Base64 is not encryption. Connect to a trusted HTTPS endpoint from the outset; never send credentials to HTTP expecting a redirect to protect them. Do not log headers or credential-bearing bodies. The [Complete REST Publication Tutorial](../getting-started/first-message.md) prompts for credentials without publishing a usable password.
 
 Channel credentials are different from SQL credentials, Azure connection settings, and discovery security-details credentials. Channel creation supplies tokens in its JSON body; a Basic header alone does not create a token. Channel creation is not gated by an existing channel credential, and unsecured channels are accessible without channel credentials. Do not assume a global administrator/login boundary around these routes; restrict endpoint access appropriately.
 

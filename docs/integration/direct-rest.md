@@ -2,7 +2,7 @@
 
 Use this approach when an application or tool can issue HTTPS requests directly. No optional ClientAdapter package or CLI Wrapper is required.
 
-The Host exposes ISBM 2.0 REST services under `/isbm/2.0`. This minimal example calls configuration discovery to confirm that the REST endpoint is reachable.
+The Host exposes ISBM 2.0 REST services under `/isbm/2.0`. This minimal example calls configuration discovery to confirm that the REST endpoint is reachable. For a publisher-side raw HTTP comparison using the shared `equipment.temperature` payload, see [Integration Options](README.md#direct-rest-comparison).
 
 ## Minimal Example
 
@@ -33,8 +33,8 @@ $response
 
 ## Next Steps
 
-- [Your First Message](../getting-started/first-message.md)
-- [Your First Request and Response](../getting-started/first-request-response.md)
+- [Complete REST Publication Tutorial](../getting-started/first-message.md)
+- [Complete REST Request/Response Tutorial](../getting-started/first-request-response.md)
 - [REST API overview](../api/overview.md)
 - [Publication / Subscription](../api/publication-workflow.md)
 - [Request / Response](../api/request-response-workflow.md)

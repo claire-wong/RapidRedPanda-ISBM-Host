@@ -1,4 +1,4 @@
-# Your First Message
+# Complete REST Publication Tutorial
 
 Exchange an application-defined JSON publication between a publisher and a consumer. The payload is not CCOM; both applications agree on its meaning.
 
@@ -328,5 +328,5 @@ Do not blindly retry a failed publish: the source sends to the broker before rec
 
 For complete contracts and lifecycle boundaries, see [Publication / Subscription](../api/publication-workflow.md), [Fault Handling](../api/fault-handling.md), and [Compatibility and Limitations](../api/compatibility-and-limitations.md).
 
-For setup details, return to [Installation](installation.md), [Configuration](configuration.md), or the [Getting Started index](README.md). PowerShell HTTP behavior is described in Microsoft's [Invoke-RestMethod documentation](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/invoke-restmethod?view=powershell-7.5).
+For smaller starting examples, see [Integration Options](../integration/README.md). For setup details, return to [Installation](installation.md), [Configuration](configuration.md), or the [Getting Started index](README.md). PowerShell HTTP behavior is described in Microsoft's [Invoke-RestMethod documentation](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/invoke-restmethod?view=powershell-7.5).
 
