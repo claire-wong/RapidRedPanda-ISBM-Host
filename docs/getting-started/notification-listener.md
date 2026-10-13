@@ -1,12 +1,12 @@
 # Observe a Publication Notification
 
-Add an optional listener to [Your First Message](first-message.md). The listener observes a notice; the Consumer still reads and removes the publication through the Host.
+Add an optional listener to [Complete REST Publication Tutorial](first-message.md). The listener observes a notice; the Consumer still reads and removes the publication through the Host.
 
 **Source-reviewed draft, not live validated.** This PowerShell 7 example is Windows-oriented and local-only. It has no authentication, durable storage, concurrency handling, or production hardening.
 
 ## 1. Prepare Publisher and Consumer
 
-Use the same-machine development setup from the first-message tutorial. Complete its steps 1-3 in the Publisher and Consumer windows. Do not publish yet.
+Use the same-machine development setup from the [Complete REST Publication Tutorial](first-message.md). Complete its steps 1-3 in the Publisher and Consumer windows. Do not publish yet.
 
 In Consumer, replace that tutorial's step 4 with:
 
@@ -124,9 +124,9 @@ If binding fails because the port is occupied or URL reservation permission is m
 
 ## 3. Publish, Read, and Clean Up
 
-Once Listener says it is listening, run first-message step 5 in Publisher. Expect a notice containing the same publication ID. This is an expected result, not a recorded runtime result.
+Once Listener says it is listening, run step 5 of the [Complete REST Publication Tutorial](first-message.md) in Publisher. Expect a notice containing the same publication ID. This is an expected result, not a recorded runtime result.
 
-Then complete first-message steps 6-8: Consumer reads the business payload, removes it, closes its session, and clears credential variables. Publisher closes its session and deletes only its demonstration channel.
+Then complete steps 6-8 of the [Complete REST Publication Tutorial](first-message.md): Consumer reads the business payload, removes it, closes its session, and clears credential variables. Publisher closes its session and deletes only its demonstration channel.
 
 Stop Listener with Ctrl+C; close its window if the blocking accept does not return. Closing the window loses deduplication state. No callback means neither proof of an empty subscription nor permission to repost the business message blindly: use bounded Host polling and sanitized diagnostics.
 

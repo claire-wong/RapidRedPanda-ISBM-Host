@@ -1,4 +1,4 @@
-# Your First Request and Response
+# Complete REST Request/Response Tutorial
 
 Ask a responder for equipment status, then read a correlated JSON response. This uses application-defined content, not CCOM and not a synchronous RPC call.
 
@@ -10,7 +10,7 @@ Complete [Installation](installation.md) and [Configuration](configuration.md). 
 
 Open two client windows named **Requester** and **Responder**, keeping the Host terminal separate. The requester uses a consumer request session; the responder uses a provider request session. This tutorial uses polling and needs no callback listener.
 
-In **both** windows, run only the complete **Prepare Both Client Windows** block from [Your First Message](first-message.md). That block sets the HTTPS address, prompts for channel credentials, and defines Invoke-Isbm. Do **not** run its publication-channel/session steps.
+In **both** windows, run only the complete **Prepare Both Client Windows** block from [Complete REST Publication Tutorial](first-message.md). That block sets the HTTPS address, prompts for channel credentials, and defines Invoke-Isbm. Do **not** run its publication-channel/session steps.
 
 Enter the same new private demonstration username/password in both windows. Use the same configured HTTPS address. Do not reuse SQL/Azure credentials or print headers/credential-bearing bodies.
 

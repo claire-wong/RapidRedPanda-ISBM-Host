@@ -142,4 +142,4 @@ Rejecting a plaintext request cannot undo credentials already transmitted on tha
 
 Channel passwords are hashed with BCrypt in the repository. Hashing is distinct from transport protection or the discovery encryption flag. Core authentication services are registered through MVC, while Basic channel checks are implemented in Host code; no standalone Basic authentication handler is established by these instructions.
 
-Next: [First Message](first-message.md). Startup: [Installation](installation.md). Index: [Getting Started](README.md).
+Next: [Complete REST Publication Tutorial](first-message.md). Startup: [Installation](installation.md). Index: [Getting Started](README.md).

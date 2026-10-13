@@ -2,7 +2,7 @@
 
 A publisher posts to a Publication channel. Each already-open consumer subscription selects topics and reads its own deliveries. An optional callback announces availability; the consumer still reads the message through REST.
 
-**Source-reviewed draft:** operation outcomes below come from the implementation. For the full PowerShell walkthrough, use [Your First Message](../getting-started/first-message.md). That tutorial and these contracts have not been exercised end to end against a live Host.
+**Source-reviewed draft:** operation outcomes below come from the implementation. For the full PowerShell walkthrough, use [Complete REST Publication Tutorial](../getting-started/first-message.md). That tutorial and these contracts have not been exercised end to end against a live Host.
 
 ## Workflow
 

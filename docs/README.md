@@ -11,8 +11,8 @@ These pages describe source-reviewed behavior, not full conformance or productio
 3. [Core Concepts](introduction/core-concepts.md)
 4. [Integration Options](integration/README.md)
 5. [Getting Started](getting-started/README.md)
-6. [First Message](getting-started/first-message.md)
-7. [First Request and Response](getting-started/first-request-response.md)
+6. [Complete REST Publication Tutorial](getting-started/first-message.md)
+7. [Complete REST Request/Response Tutorial](getting-started/first-request-response.md)
 8. [Notification Listener](getting-started/notification-listener.md)
 
 ## Reference

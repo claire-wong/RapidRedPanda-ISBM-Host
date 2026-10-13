@@ -31,7 +31,7 @@ For a routing 404, check the path, identifier encoding, and body. A generic 404 
 - Avoid blind reposts: repeated posts can create separate messages/responses.
 - Apply required content filtering in clients; accepted expressions are not evaluated by the Host.
 
-See [First Message](../getting-started/first-message.md), [First Request and Response](../getting-started/first-request-response.md), and [Compatibility and Limitations](../api/compatibility-and-limitations.md).
+See [Complete REST Publication Tutorial](../getting-started/first-message.md), [Complete REST Request/Response Tutorial](../getting-started/first-request-response.md), and [Compatibility and Limitations](../api/compatibility-and-limitations.md).
 
 ## Callbacks
 

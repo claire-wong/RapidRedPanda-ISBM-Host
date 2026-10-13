@@ -70,4 +70,4 @@ Do not close immediately after posting if subscribers still need to claim the pu
 - Publishing successfully does not prove that a subscriber received or processed the message.
 - Use HTTPS for credential-bearing calls.
 
-For the complete publish/read/remove lifecycle, use the Host's [first-message tutorial](../getting-started/first-message.md) or the ClientAdapter Coding Guide. Return to [Integration Options](README.md).
+For the complete publish/read/remove lifecycle, use the Host's [Complete REST Publication Tutorial](../getting-started/first-message.md) or the ClientAdapter Coding Guide. Return to [Integration Options](README.md).

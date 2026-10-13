@@ -126,7 +126,7 @@ $discovery = Invoke-RestMethod -Method Get -Uri "$hostBaseUrl/isbm/2.0/configura
 $discovery
 ```
 
-The controller defines a `200 OK` JSON response with supported-operation information, including disabled XML/JSON filtering and Basic REST authentication. This endpoint confirms that the REST layer responds; it does **not** prove SQL access or broker connectivity. The [First Message](first-message.md) workflow exercises those paths.
+The controller defines a `200 OK` JSON response with supported-operation information, including disabled XML/JSON filtering and Basic REST authentication. This endpoint confirms that the REST layer responds; it does **not** prove SQL access or broker connectivity. The [Complete REST Publication Tutorial](first-message.md) exercises those paths.
 
 If TLS fails, confirm the certificate is valid and trusted and that you are connecting to its hostname. Do not disable certificate validation or send channel credentials to an HTTP URL. If startup option validation fails, compare your effective settings with [Configuration](configuration.md).
 
@@ -146,4 +146,4 @@ A deployment environment needs its own runtime account, protected configuration,
 
 The published project includes database install and maintenance SQL files. Publishing or starting the Host does not execute them automatically.
 
-Next: [First Message](first-message.md). Settings: [Configuration](configuration.md). Index: [Getting Started](README.md).
+Next: [Complete REST Publication Tutorial](first-message.md). Settings: [Configuration](configuration.md). Index: [Getting Started](README.md).

@@ -65,7 +65,7 @@ Accept: application/json
 }
 ```
 
-This is not a complete workflow. A direct REST client must open the provider publication session, build the Basic authorization header, serialize the ISBM JSON envelope, check the HTTP status and fault body, retain returned identifiers, and decide when to close the provider session. For a complete executable PowerShell publication/subscription workflow, use [Your First Message](../getting-started/first-message.md).
+This is not a complete workflow. A direct REST client must open the provider publication session, build the Basic authorization header, serialize the ISBM JSON envelope, check the HTTP status and fault body, retain returned identifiers, and decide when to close the provider session. For a complete executable PowerShell publication/subscription workflow, use the [Complete REST Publication Tutorial](../getting-started/first-message.md).
 
 ## Authoritative References
 
@@ -74,4 +74,4 @@ This is not a complete workflow. A direct REST client must open the provider pub
 - [Wrapper Python samples](https://github.com/claire-wong/RapidRedPanda-ISBM-Wrapper/tree/main/samples/python)
 - [Host REST API overview](../api/overview.md)
 
-For a complete direct REST walkthrough, start with [Your First Message](../getting-started/first-message.md). Return to the [documentation index](../README.md).
+For a complete direct REST walkthrough, start with the [Complete REST Publication Tutorial](../getting-started/first-message.md). Return to the [documentation index](../README.md).

@@ -78,7 +78,7 @@ DELETE /isbm/2.0/sessions/{sessionId}
 
 No request body. Supply the appropriate Basic credentials. Successful close returns HTTP 204 with no document.
 
-This shared route closes publication, subscription, provider-request, and consumer-request sessions. For a publication subscription it deletes the Host-managed broker subscription and updates Host lifecycle state. For a provider publication it closes that publisher's context; it does not delete the channel.
+This shared route closes publication, subscription, provider-request, and consumer-request sessions. For a publication subscription it deletes the Host-managed broker subscription and updates Host lifecycle state. For a provider publication it closes that publisher's context; it does not delete the channel. Under ISBM 2.0 Section 5.4.4, closing a provider publication session expires all remaining unexpired publications posted during that session; close deliberately when that expiration is acceptable. See [Publication / Subscription](publication-workflow.md).
 
 Close only sessions created by your client. Closing a consumer with unprocessed messages can discard its broker backlog. Finish processing/removal before closing, then delete only disposable demonstration channels.
 
@@ -98,5 +98,5 @@ Missing/already closed sessions return `404 SessionFault`; do not expect repeate
 
 In the registered authorization pipeline, malformed session IDs can be rejected as 404 SessionFault before service-level parameter validation. Do not promise 400 for every malformed session route.
 
-Continue with [Publication / Subscription](publication-workflow.md), [Request / Response](request-response-workflow.md), or [Fault Handling](fault-handling.md). Two-window examples are in [Your First Message](../getting-started/first-message.md) and [Your First Request and Response](../getting-started/first-request-response.md).
+Continue with [Publication / Subscription](publication-workflow.md), [Request / Response](request-response-workflow.md), or [Fault Handling](fault-handling.md). Two-window examples are in [Complete REST Publication Tutorial](../getting-started/first-message.md) and [Complete REST Request/Response Tutorial](../getting-started/first-request-response.md).
 
