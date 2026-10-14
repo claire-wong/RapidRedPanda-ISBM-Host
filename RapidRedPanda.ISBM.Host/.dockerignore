@@ -1,0 +1,65 @@
+# Source control and local tooling
+.git/
+.gitignore
+.vs/
+.agents/
+.codex-build/
+agentTasks/
+
+# Projects not required to publish the Host
+RapidRedPanda.ISBM.Host.Tests/
+RapidRedPanda.ISBM.Host.slnx
+
+# Build and test output
+**/bin/
+**/obj/
+**/TestResults/
+**/coverage/
+**/coverage.*
+**/*.coverage
+**/*.coveragexml
+**/*.trx
+artifacts/
+publish/
+
+# IDE and operating-system files
+**/*.user
+**/*.suo
+**/*.rsuser
+**/*.userosscache
+**/*.sln.docstates
+**/.DS_Store
+**/Thumbs.db
+**/desktop.ini
+
+# Local logs and temporary files
+**/*.log
+**/*.tmp
+**/*.temp
+**/*.bak
+**/*~
+
+# Local secrets and environment-specific configuration
+.env
+.env.*
+**/.env
+**/.env.*
+**/secrets.json
+**/appsettings.Development.json
+**/appsettings.Development.local.json
+**/appsettings.Local.json
+**/appsettings.*.local.json
+
+# Certificates and private keys
+**/*.pfx
+**/*.p12
+**/*.pem
+**/*.key
+**/*.crt
+**/*.cer
+
+# Generated image archives and packages
+**/*.tar
+**/*.tar.gz
+**/*.tgz
+**/*.zip
