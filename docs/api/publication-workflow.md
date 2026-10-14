@@ -20,16 +20,19 @@ Closing a provider publication session is also a publication-lifecycle action. U
 6. Process the returned content, then remove that consumer's outstanding publication.
 7. Close the consumer session when finished. Close the provider session only when remaining unexpired publications from that session may be expired; delete only disposable demonstration channels.
 
-Publisher and consumer IDs are distinct. See [Sessions](sessions.md) for opening and closing; all routes below are relative to `/isbm/2.0`.
+Publisher and consumer IDs are distinct. See [Sessions](sessions.md) for additional session-body details. All routes below are relative to `/isbm/2.0`.
 
 ## Operations
 
-| Operation | Method and path | Success | Request / response |
+| Operation | Method and path | Role | Success |
 | --- | --- | --- | --- |
-| PostPublication | POST `sessions/{providerSessionId}/publications` | 201 | topics, messageContent, optional expiry; returns messageId. |
-| ReadPublication | GET `sessions/{consumerSessionId}/publication` | 200 | No body; returns messageId, topics, messageContent. |
-| RemovePublication | DELETE `sessions/{consumerSessionId}/publication` | 204 | No body or message ID; removes this session's outstanding delivery. |
-| ExpirePublication | DELETE `sessions/{providerSessionId}/publications/{messageId}` | 204 | No body; marks matching channel publication expired. |
+| OpenPublicationSession | POST `channels/{channelUri}/publication-sessions` | Publisher | 201 with sessionId |
+| OpenSubscriptionSession | POST `channels/{channelUri}/subscription-sessions` | Subscriber | 201 with sessionId |
+| PostPublication | POST `sessions/{providerSessionId}/publications` | Publisher | 201 with messageId |
+| ReadPublication | GET `sessions/{consumerSessionId}/publication` | Subscriber | 200; empty read is 404 MessageFault |
+| RemovePublication | DELETE `sessions/{consumerSessionId}/publication` | Subscriber | 204, no body |
+| ExpirePublication | DELETE `sessions/{providerSessionId}/publications/{messageId}` | Publisher | 204, no body |
+| CloseSession | DELETE `sessions/{sessionId}` | Either | 204, no body |
 
 Supply matching Basic channel credentials on protected calls. Singular `publication` belongs to consumer read/removal; plural `publications` belongs to provider post/expiry. Provider publication-session close uses the session-close route documented in [Sessions](sessions.md), and it has the additional expiration effect described above.
 
