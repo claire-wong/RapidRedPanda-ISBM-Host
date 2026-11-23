@@ -67,6 +67,7 @@ RapidRedPanda.ISBM.Host/Database/Scripts/Validation/
 *.sln.docstates
 
 # Build output
+/artifacts/
 [Bb]in/
 [Oo]bj/
 **/[Bb]in/

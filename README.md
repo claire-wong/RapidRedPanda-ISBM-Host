@@ -72,11 +72,11 @@ The first release uses Microsoft SQL Server for persistent storage and Azure Ser
 
 The current implementation requires a .NET 10 development environment, SQL Server, and an Azure Service Bus namespace supporting topics and subscriptions, together with appropriate configuration and access permissions.
 
-Follow the [Getting Started guide](docs/getting-started/README.md) for Windows prerequisites, installation, configuration, and beginner integration choices. Start with [Integration Options](docs/integration/README.md) when you want a compact .NET ClientAdapter, CLI Wrapper, or direct REST example before the complete PowerShell walkthroughs. These instructions are source-reviewed drafts, not end-to-end validated deployment steps. Docker deployment is deferred to a future release.
+Follow the [Getting Started guide](docs/getting-started/README.md) for Windows prerequisites, installation, configuration, and beginner integration choices. Start with [Integration Options](docs/integration/README.md) when you want a compact .NET ClientAdapter, CLI Wrapper, or direct REST example before the complete PowerShell walkthroughs. These workflows require runtime validation in your environment. To load or build the Linux AMD64 Host image, see [Run the Host with Docker](docs/operations/docker-deployment.md).
 
 ## Documentation
 
-The [documentation index](docs/README.md) also links to security, maintenance, and troubleshooting. Review [Compatibility and Limitations](docs/api/compatibility-and-limitations.md), including the current request-expiry ownership limitation, before planning a shared deployment.
+The [documentation index](docs/README.md) also links to security, maintenance, and troubleshooting. Review [Compatibility and Limitations](docs/api/compatibility-and-limitations.md) before planning a shared deployment.
 
 Read these pages in order:
 

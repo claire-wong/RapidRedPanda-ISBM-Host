@@ -58,15 +58,13 @@ Request/response can fan out to multiple matching responders and can produce mul
 
 RemoveRequest acknowledges one responder's delivery, not deletion of the correlation record. Active requests can still receive responses after removal. An expired request that remains outstanding for a responder can also accept a response, but the requester cannot claim a new response after expiry. Already-outstanding responses remain readable until removal. See [Request / Response](request-response-workflow.md) for these boundaries.
 
-## Known Request Expiry Limitation
+## Request Expiry Ownership
 
-In the current documentation branch, ExpireRequest scopes the request update to the requester session/channel, but attempts notification suppression even when no owned request was updated. A supplied foreign request ID can therefore affect pending request-availability notices. A 204 does not prove an owned transition or harmless no-op.
-
-Expire only IDs obtained for the caller's own requests. This client precaution is not a security boundary against untrusted callers. Integrate and separately SQL-validate the ownership and already-expired no-op fix before removing this limitation from release guidance. Documentation alone does not fix it.
+ExpireRequest suppresses pending request-availability notices only after an active request owned by the requester session and channel transitions to expired. HTTP 204 covers both a successful transition and a no-op. Exercise the ownership and already-expired cases against SQL Server before sharing a deployment.
 
 ## Deployment and Release Readiness
 
-Docker deployment is **deferred to a future release**. This first-release documentation does not offer a supported Docker workflow.
+Linux AMD64 container setup is documented in [Run the Host with Docker](../operations/docker-deployment.md). Validate the container with your SQL Server, Azure Service Bus namespace, and TLS configuration before wider deployment.
 
 The getting-started path is Windows-oriented. Linux and IIS/reverse-proxy deployment have not been validated by this guide. Trusted certificate setup and original HTTPS scheme handling are not automatically supplied by the TLS option.
 

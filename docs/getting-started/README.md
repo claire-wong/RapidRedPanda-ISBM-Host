@@ -28,7 +28,7 @@ The complete PowerShell tutorials remain available when you want to create chann
 
 After exchanging your first message, use the [ISBM REST API reference](../api/overview.md) for channel/session contracts, publication and request/response lifecycles, notifications, discovery, payload representations, and error handling.
 
-The current backend is SQL Server and Azure Service Bus. This guide covers REST and a Windows development setup. It provides no Docker workflow, alternative broker setup, or SOAP instructions. Linux direct deployment has not been validated for this guide.
+The Host uses SQL Server and Azure Service Bus. For Linux AMD64 containers, follow [Run the Host with Docker](../operations/docker-deployment.md).
 
 The Host is licensed under the [MIT License](../../LICENSE).
 

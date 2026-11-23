@@ -50,6 +50,17 @@ publish/
 **/appsettings.Local.json
 **/appsettings.*.local.json
 
+# Development configuration template is for local setup
+**/appsettings.Development.example.json
+
+# Local SQL Server data and development-only database scripts
+Database/Active/
+Database/Empty/
+Database/Scripts/Migrations/
+Database/Scripts/Validation/
+**/*.mdf
+**/*.ldf
+
 # Certificates and private keys
 **/*.pfx
 **/*.p12

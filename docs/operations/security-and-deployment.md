@@ -18,7 +18,7 @@ Provide protected runtime identities/configuration, valid certificates, process 
 
 For TLS termination, trusted forwarding/hosting configuration must establish the original HTTPS scheme before the guard. General forwarded-header trust is not configured automatically. An arbitrary X-Forwarded-Proto header is insufficient. Validate the actual path instead of disabling the guard to mask rejection.
 
-Linux, IIS/reverse proxies, and published production deployment have not been exercised by these guides. Docker is deferred. See [Installation](../getting-started/installation.md#publish-an-application-folder).
+See [Run the Host with Docker](docker-deployment.md) for Linux AMD64 container setup with direct HTTPS. Validate IIS, reverse proxies, and production deployment in your environment. For a Windows application-folder deployment, see [Installation](../getting-started/installation.md#publish-an-application-folder).
 
 ## Backends and Secrets
 
@@ -36,6 +36,6 @@ The callback client does not supply channel Basic credentials or application sig
 
 Validate fresh installation, both messaging patterns, callbacks, TLS rejection, authorization failures, and recovery scenarios in an authorized environment. Reconcile SQL/broker state after failures; do not assume atomic cross-system transactions or exactly-once processing.
 
-The current documentation branch has a request-expiry notification ownership limitation. A separate fix branch does not establish that deployed software includes it. Review [Compatibility and Limitations](../api/compatibility-and-limitations.md#known-request-expiry-limitation) before permitting untrusted applications to share a deployment.
+Include request-expiry ownership and already-expired no-ops in SQL Server validation before permitting untrusted applications to share a deployment. See [Compatibility and Limitations](../api/compatibility-and-limitations.md#request-expiry-ownership).
 
 Return to the [documentation index](../README.md).

@@ -38,4 +38,4 @@ These pages describe source-reviewed behavior, not full conformance or productio
 - [Maintenance and Recovery](operations/maintenance.md)
 - [Troubleshooting](operations/troubleshooting.md)
 
-Docker deployment is deferred. CCOM and other business models are optional payload agreements, not Host requirements. Return to the [project overview](../README.md).
+For Linux AMD64 container setup, see [Run the Host with Docker](operations/docker-deployment.md). CCOM and other business models are optional payload agreements. Return to the [project overview](../README.md).
